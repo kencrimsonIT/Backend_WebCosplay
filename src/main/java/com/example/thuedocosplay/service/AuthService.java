@@ -1,7 +1,119 @@
 package com.example.thuedocosplay.service;
 
+import com.example.thuedocosplay.dto.request.LoginRequest;
+import com.example.thuedocosplay.dto.request.RegisterRequest;
+import com.example.thuedocosplay.dto.response.AuthResponse;
+import com.example.thuedocosplay.dto.response.UserResponse;
+import com.example.thuedocosplay.entity.User;
+import com.example.thuedocosplay.repository.UserRepository;
+import com.example.thuedocosplay.security.JwtService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import io.jsonwebtoken.Claims;
+
+import java.util.Map;
+import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
 public class AuthService {
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
+    private final AuthenticationManager authenticationManager;
+    private final EmailService emailService;
+
+    @Value("${application.security.jwt.access-token-expiration}")
+    private long accessTokenExpiration;
+
+    public AuthResponse register(RegisterRequest request) {
+        if (!request.getPassword().equals(request.getConfirmPassword())) {
+            throw new RuntimeException("Mật khẩu xác nhận không khớp");
+        }
+
+        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+            throw new RuntimeException("Email đã tồn tại");
+        }
+
+        Map<String, Object> claims = Map.of(
+                "fullName", request.getFullName(),
+                "email", request.getEmail(),
+                "password", passwordEncoder.encode(request.getPassword())
+        );
+
+        String token = jwtService.generateVerificationToken(claims);
+        emailService.sendVerificationEmail(request.getEmail(), token);
+
+        return AuthResponse.builder()
+                .accessToken(null)
+                .expiresIn(0)
+                .user(UserResponse.builder()
+                        .fullName(request.getFullName())
+                        .email(request.getEmail())
+                        .role(User.UserRole.CLIENT)
+                        .build())
+                .build();
+    }
+
+    public AuthResponse login(LoginRequest request) {
+        try {
+            authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            request.getEmail(),
+                            request.getPassword()
+                    )
+            );
+        } catch (DisabledException e) {
+            throw new RuntimeException("Tài khoản chưa được xác thực email");
+        }
+
+        var user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
+
+        var jwtToken = jwtService.generateAccessToken(user);
+
+        return AuthResponse.builder()
+                .accessToken(jwtToken)
+                .expiresIn(accessTokenExpiration)
+                .user(UserResponse.fromEntity(user))
+                .build();
+    }
+
+    public String verifyEmail(String token) {
+        try {
+            Claims claims = jwtService.extractAllClaims(token);
+            String email = claims.get("email", String.class);
+            String fullName = claims.get("fullName", String.class);
+            String password = claims.get("password", String.class);
+
+            if (userRepository.findByEmail(email).isPresent()) {
+                return "Tài khoản đã được xác thực trước đó.";
+            }
+
+            var user = User.builder()
+                    .fullName(fullName)
+                    .email(email)
+                    .password(password)
+                    .role(User.UserRole.CLIENT)
+                    .enabled(true)
+                    .build();
+
+            userRepository.save(user);
+
+            return "Xác thực email thành công! Bạn có thể đăng nhập ngay bây giờ.";
+        } catch (Exception e) {
+            throw new RuntimeException("Mã xác thực không hợp lệ hoặc đã hết hạn");
+        }
+    }
+
+//    public void logout(String email) {
+//        User user = userRepository.findByEmail(email)
+//                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
+//
+//    }
 }
