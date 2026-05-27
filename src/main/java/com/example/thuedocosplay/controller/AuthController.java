@@ -1,5 +1,6 @@
 package com.example.thuedocosplay.controller;
 
+import com.example.thuedocosplay.dto.request.ChangePasswordRequest;
 import com.example.thuedocosplay.dto.request.LoginRequest;
 import com.example.thuedocosplay.dto.request.RegisterRequest;
 import com.example.thuedocosplay.dto.response.AuthResponse;
@@ -43,5 +44,14 @@ public class AuthController {
     @GetMapping("/me")
     public ResponseEntity<UserResponse> getMe(@AuthenticationPrincipal UserDetails userDetails) {
         return ResponseEntity.ok(authService.getMe(userDetails.getUsername()));
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<String> changePassword(
+            @Valid @RequestBody ChangePasswordRequest request,
+            @AuthenticationPrincipal UserDetails userDetails
+    ) {
+        authService.changePassword(request, userDetails.getUsername());
+        return ResponseEntity.ok("Đổi mật khẩu thành công");
     }
 }
