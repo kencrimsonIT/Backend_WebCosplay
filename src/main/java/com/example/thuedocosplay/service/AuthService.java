@@ -1,5 +1,6 @@
 package com.example.thuedocosplay.service;
 
+import com.example.thuedocosplay.dto.request.ChangePasswordRequest;
 import com.example.thuedocosplay.dto.request.LoginRequest;
 import com.example.thuedocosplay.dto.request.RegisterRequest;
 import com.example.thuedocosplay.dto.response.AuthResponse;
@@ -146,5 +147,21 @@ public class AuthService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
         return UserResponse.fromEntity(user);
+    }
+
+    public void changePassword(ChangePasswordRequest request, String email) {
+        var user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+            throw new RuntimeException("Mật khẩu hiện tại không đúng");
+        }
+
+        if (!request.getNewPassword().equals(request.getConfirmNewPassword())) {
+            throw new RuntimeException("Mật khẩu xác nhận không khớp");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        userRepository.save(user);
     }
 }
