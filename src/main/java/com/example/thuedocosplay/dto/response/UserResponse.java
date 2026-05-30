@@ -16,6 +16,7 @@ public class UserResponse {
     private LocalDate birthDate;
     private String avatarUrl;
     private User.UserRole role;
+    private java.util.List<AddressResponse> addresses;
 
     public static UserResponse fromEntity(User user) {
         return UserResponse.builder()
@@ -26,6 +27,8 @@ public class UserResponse {
                 .birthDate(user.getBirthDate())
                 .avatarUrl(user.getAvatarUrl())
                 .role(user.getRole())
+                .addresses(user.getAddresses() != null ? 
+                    user.getAddresses().stream().map(AddressResponse::fromEntity).collect(java.util.stream.Collectors.toList()) : null)
                 .build();
     }
 }
