@@ -20,6 +20,22 @@ public class EmailService {
                 + "<a href=\"" + verificationUrl + "\">Xác thực ngay</a>"
                 + "<br><p>Link này sẽ hết hạn sau 24h.</p>";
 
+        sendEmail(to, subject, content);
+    }
+
+    public void sendPasswordResetEmail(String to, String token) {
+        String resetUrl = "http://localhost:3000/reset-password?token=" + token;
+        String subject = "Khôi phục mật khẩu WebCosplay";
+        String content = "<p>Chào bạn,</p>"
+                + "<p>Bạn đã yêu cầu khôi phục mật khẩu. Vui lòng nhấn vào link bên dưới để đặt lại mật khẩu:</p>"
+                + "<a href=\"" + resetUrl + "\">Đặt lại mật khẩu</a>"
+                + "<br><p>Link này sẽ hết hạn sau 45 phút.</p>"
+                + "<p>Nếu bạn không yêu cầu này, vui lòng bỏ qua email này.</p>";
+
+        sendEmail(to, subject, content);
+    }
+
+    private void sendEmail(String to, String subject, String content) {
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
