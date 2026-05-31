@@ -1,5 +1,7 @@
 package com.example.thuedocosplay.controller;
 
+import com.example.thuedocosplay.dto.request.ForgotPasswordRequest;
+import com.example.thuedocosplay.dto.request.ResetPasswordRequest;
 import com.example.thuedocosplay.dto.request.ChangePasswordRequest;
 import com.example.thuedocosplay.dto.request.LoginRequest;
 import com.example.thuedocosplay.dto.request.RegisterRequest;
@@ -34,6 +36,18 @@ public class AuthController {
     @GetMapping("/verify")
     public ResponseEntity<String> verifyEmail(@RequestParam String token) {
         return ResponseEntity.ok(authService.verifyEmail(token));
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<String> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request) {
+        authService.forgotPassword(request);
+        return ResponseEntity.ok("Vui lòng kiểm tra email để khôi phục mật khẩu");
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<String> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        authService.resetPassword(request);
+        return ResponseEntity.ok("Mật khẩu đã được đặt lại thành công");
     }
 
     @GetMapping("/oauth2/success")
