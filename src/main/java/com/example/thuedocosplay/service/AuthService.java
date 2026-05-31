@@ -1,5 +1,7 @@
 package com.example.thuedocosplay.service;
 
+import com.example.thuedocosplay.dto.request.ForgotPasswordRequest;
+import com.example.thuedocosplay.dto.request.ResetPasswordRequest;
 import com.example.thuedocosplay.dto.request.ChangePasswordRequest;
 import com.example.thuedocosplay.dto.request.LoginRequest;
 import com.example.thuedocosplay.dto.request.RegisterRequest;
@@ -94,7 +96,7 @@ public class AuthService {
             String password = claims.get("password", String.class);
 
             if (userRepository.findByEmail(email).isPresent()) {
-                return "Tài khoản đã được xác thực trước đó.";
+                return "Tài khoản đã được xác thực trước đo đó.";
             }
 
             var user = User.builder()
@@ -109,6 +111,49 @@ public class AuthService {
 
             return "Xác thực email thành công! Bạn có thể đăng nhập ngay bây giờ.";
         } catch (Exception e) {
+            throw new RuntimeException("Mã xác thực không hợp lệ hoặc đã hết hạn");
+        }
+    }
+
+    public void forgotPassword(ForgotPasswordRequest request) {
+        var user = userRepository.findByEmail(request.getEmail())
+                .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng với email này"));
+
+        Map<String, Object> claims = Map.of(
+                "email", user.getEmail(),
+                "passwordHash", user.getPassword()
+        );
+
+        String token = jwtService.generatePasswordResetToken(claims);
+        emailService.sendPasswordResetEmail(user.getEmail(), token);
+    }
+
+    public void resetPassword(ResetPasswordRequest request) {
+        if (!request.getNewPassword().equals(request.getConfirmNewPassword())) {
+            throw new RuntimeException("Mật khẩu xác nhận không khớp");
+        }
+
+        try {
+            Claims claims = jwtService.extractAllClaims(request.getToken());
+            if (!"password-reset".equals(claims.getSubject())) {
+                throw new RuntimeException("Mã xác thực không hợp lệ");
+            }
+            String email = claims.get("email", String.class);
+            String passwordHash = claims.get("passwordHash", String.class);
+
+            var user = userRepository.findByEmail(email)
+                    .orElseThrow(() -> new RuntimeException("Không tìm thấy người dùng"));
+
+            if (!user.getPassword().equals(passwordHash)) {
+                throw new RuntimeException("Mã xác thực đã được sử dụng hoặc không còn hiệu lực");
+            }
+
+            user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+            userRepository.save(user);
+        } catch (Exception e) {
+            if (e instanceof RuntimeException && e.getMessage().contains("Mã xác thực")) {
+                throw e;
+            }
             throw new RuntimeException("Mã xác thực không hợp lệ hoặc đã hết hạn");
         }
     }
