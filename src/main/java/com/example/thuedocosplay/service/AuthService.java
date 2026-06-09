@@ -19,6 +19,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
 import io.jsonwebtoken.Claims;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
 import java.util.UUID;
@@ -164,6 +165,7 @@ public class AuthService {
 //
 //    }
 
+    @Transactional
     public AuthResponse handleOAuth2Login(OAuth2User oauth2User) {
         String email = oauth2User.getAttribute("email");
         String fullName = oauth2User.getAttribute("name");
