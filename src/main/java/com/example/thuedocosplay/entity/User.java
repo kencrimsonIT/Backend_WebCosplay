@@ -16,6 +16,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
+import com.example.thuedocosplay.entity.enums.UserRole;
 
 @Entity
 @Table(name = "users", schema = "public")
@@ -25,8 +26,6 @@ import java.util.List;
 @AllArgsConstructor
 @Builder
 public class User implements UserDetails {
-    public enum UserRole {CLIENT, SELLER, ADMIN}
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

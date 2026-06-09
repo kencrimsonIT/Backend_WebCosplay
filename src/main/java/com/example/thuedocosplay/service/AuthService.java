@@ -8,6 +8,7 @@ import com.example.thuedocosplay.dto.request.RegisterRequest;
 import com.example.thuedocosplay.dto.response.AuthResponse;
 import com.example.thuedocosplay.dto.response.UserResponse;
 import com.example.thuedocosplay.entity.User;
+import com.example.thuedocosplay.entity.enums.UserRole;
 import com.example.thuedocosplay.repository.UserRepository;
 import com.example.thuedocosplay.security.JwtService;
 import lombok.RequiredArgsConstructor;
@@ -59,7 +60,7 @@ public class AuthService {
                 .user(UserResponse.builder()
                         .fullName(request.getFullName())
                         .email(request.getEmail())
-                        .role(User.UserRole.CLIENT)
+                        .role(UserRole.CLIENT)
                         .build())
                 .build();
     }
@@ -103,7 +104,7 @@ public class AuthService {
                     .fullName(fullName)
                     .email(email)
                     .password(password)
-                    .role(User.UserRole.CLIENT)
+                    .role(UserRole.CLIENT)
                     .enabled(true)
                     .build();
 
@@ -174,7 +175,7 @@ public class AuthService {
                                 .email(email)
                                 .fullName(fullName)
                                 .password(passwordEncoder.encode(UUID.randomUUID().toString()))
-                                .role(User.UserRole.CLIENT)
+                                .role(UserRole.CLIENT)
                                 .enabled(true)
                                 .build()
                 ));

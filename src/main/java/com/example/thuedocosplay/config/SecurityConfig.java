@@ -52,7 +52,15 @@ public class SecurityConfig {
             "/swagger-ui.html",
             "/error",
             "/login/oauth2/**",
-            "/oauth2/**"
+            "/oauth2/**",
+
+            "/api/payments/vnpay/return",
+            "/api/payments/vnpay/ipn",
+            "/api/payments/momo/return",
+            "/api/payments/momo/ipn",
+
+            "/api/orders/**",
+            "/api/payments/**"
     };
 
     @Bean

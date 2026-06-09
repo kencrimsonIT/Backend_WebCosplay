@@ -1,6 +1,7 @@
 package com.example.thuedocosplay.dto.response;
 
 import com.example.thuedocosplay.entity.User;
+import com.example.thuedocosplay.entity.enums.UserRole;
 import lombok.Builder;
 import lombok.Data;
 
@@ -15,7 +16,7 @@ public class UserResponse {
     private String phone;
     private LocalDate birthDate;
     private String avatarUrl;
-    private User.UserRole role;
+    private UserRole role;
     private java.util.List<AddressResponse> addresses;
 
     public static UserResponse fromEntity(User user) {
