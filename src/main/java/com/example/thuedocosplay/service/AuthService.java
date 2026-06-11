@@ -171,16 +171,43 @@ public class AuthService {
         String email = oauth2User.getAttribute("email");
         String fullName = oauth2User.getAttribute("name");
 
-        User user = userRepository.findByEmail(email)
-                .orElseGet(() -> userRepository.save(
+        if (email == null || email.isEmpty()) {
+            // Fallback for providers that might not return an email (like Facebook in some cases)
+            // Using provider ID as a fallback email or throwing an error
+            String providerId = oauth2User.getAttribute("id") != null ? oauth2User.getAttribute("id") : oauth2User.getName();
+            email = providerId + "@oauth2.com";
+        }
+
+        final String finalEmail = email;
+        User user = userRepository.findByEmail(finalEmail)
+                .orElseGet(() -> {
+                    // Try to get avatar URL
+                    String avatarUrl = null;
+                    if (oauth2User.getAttribute("picture") != null) {
+                        Object picture = oauth2User.getAttribute("picture");
+                        if (picture instanceof String) {
+                            avatarUrl = (String) picture; // Google style
+                        } else if (picture instanceof Map) {
+                            // Facebook style: picture { data { url } }
+                            Map<?, ?> pictureMap = (Map<?, ?>) picture;
+                            Object data = pictureMap.get("data");
+                            if (data instanceof Map) {
+                                avatarUrl = (String) ((Map<?, ?>) data).get("url");
+                            }
+                        }
+                    }
+
+                    return userRepository.save(
                         User.builder()
-                                .email(email)
-                                .fullName(fullName)
+                                .email(finalEmail)
+                                .fullName(fullName != null ? fullName : "User " + finalEmail)
+                                .avatarUrl(avatarUrl)
                                 .password(passwordEncoder.encode(UUID.randomUUID().toString()))
                                 .role(UserRole.CLIENT)
                                 .enabled(true)
                                 .build()
-                ));
+                    );
+                });
 
         String jwtToken = jwtService.generateAccessToken(user);
 
