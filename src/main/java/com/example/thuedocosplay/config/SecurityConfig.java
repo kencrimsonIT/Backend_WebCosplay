@@ -60,7 +60,8 @@ public class SecurityConfig {
             "/api/payments/momo/ipn",
 
             "/api/orders/**",
-            "/api/payments/**"
+            "/api/payments/**",
+            "/api/products/**"
     };
 
     @Bean
