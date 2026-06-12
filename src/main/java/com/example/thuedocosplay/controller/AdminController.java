@@ -5,6 +5,7 @@ import com.example.thuedocosplay.dto.request.UpsertCategoryRequest;
 import com.example.thuedocosplay.dto.request.UpsertProductRequest;
 import com.example.thuedocosplay.dto.request.UpsertUserRequest;
 import com.example.thuedocosplay.dto.response.ApiResponse;
+import com.example.thuedocosplay.dto.response.CategoryResponse;
 import com.example.thuedocosplay.dto.response.OrderResponse;
 import com.example.thuedocosplay.service.AdminService;
 import com.example.thuedocosplay.service.OrderService;
@@ -52,17 +53,17 @@ public class AdminController {
 
     // Categories
     @GetMapping("/categories")
-    public ApiResponse<List<Map<String, Object>>> listCategories() {
+    public ApiResponse<List<CategoryResponse>> listCategories() {
         return ApiResponse.ok(adminService.listCategories());
     }
 
     @PostMapping("/categories")
-    public ApiResponse<Map<String, Object>> createCategory(@Valid @RequestBody UpsertCategoryRequest request) {
+    public ApiResponse<CategoryResponse> createCategory(@Valid @RequestBody UpsertCategoryRequest request) {
         return ApiResponse.ok(adminService.createCategory(request));
     }
 
     @PutMapping("/categories/{id}")
-    public ApiResponse<Map<String, Object>> updateCategory(@PathVariable Long id, @Valid @RequestBody UpsertCategoryRequest request) {
+    public ApiResponse<CategoryResponse> updateCategory(@PathVariable Long id, @Valid @RequestBody UpsertCategoryRequest request) {
         return ApiResponse.ok(adminService.updateCategory(id, request));
     }
 
