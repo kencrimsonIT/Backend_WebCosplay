@@ -3,11 +3,11 @@ package com.example.thuedocosplay.service;
 import com.example.thuedocosplay.dto.request.UpsertCategoryRequest;
 import com.example.thuedocosplay.dto.request.UpsertProductRequest;
 import com.example.thuedocosplay.dto.request.UpsertUserRequest;
+import com.example.thuedocosplay.dto.response.CategoryResponse;
 import com.example.thuedocosplay.entity.Category;
 import com.example.thuedocosplay.entity.Product;
 import com.example.thuedocosplay.entity.User;
 import com.example.thuedocosplay.exception.ResourceNotFoundException;
-import com.example.thuedocosplay.repository.CategoryRepository;
 import com.example.thuedocosplay.repository.ProductRepository;
 import com.example.thuedocosplay.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,8 +23,8 @@ import java.util.Map;
 public class AdminService {
 
     private final UserRepository userRepository;
-    private final CategoryRepository categoryRepository;
     private final ProductRepository productRepository;
+    private final CategoryService categoryService;
 
     @Transactional(readOnly = true)
     public List<Map<String, Object>> listUsers() {
@@ -69,32 +69,23 @@ public class AdminService {
     }
 
     @Transactional(readOnly = true)
-    public List<Map<String, Object>> listCategories() {
-        return categoryRepository.findAll().stream().map(this::categoryMap).toList();
+    public List<CategoryResponse> listCategories() {
+        return categoryService.getAllCategories();
     }
 
     @Transactional
-    public Map<String, Object> createCategory(UpsertCategoryRequest request) {
-        Category category = Category.builder()
-                .name(request.getName().trim())
-                .active(request.getActive() != null ? request.getActive() : true)
-                .build();
-        return categoryMap(categoryRepository.save(category));
+    public CategoryResponse createCategory(UpsertCategoryRequest request) {
+        return categoryService.createCategory(request);
     }
 
     @Transactional
-    public Map<String, Object> updateCategory(Long id, UpsertCategoryRequest request) {
-        Category category = findCategory(id);
-        category.setName(request.getName().trim());
-        if (request.getActive() != null) {
-            category.setActive(request.getActive());
-        }
-        return categoryMap(categoryRepository.save(category));
+    public CategoryResponse updateCategory(Long id, UpsertCategoryRequest request) {
+        return categoryService.updateCategory(id, request);
     }
 
     @Transactional
     public void deleteCategory(Long id) {
-        categoryRepository.delete(findCategory(id));
+        categoryService.deleteCategory(id);
     }
 
     @Transactional(readOnly = true)
@@ -147,8 +138,7 @@ public class AdminService {
     }
 
     private Category findCategory(Long id) {
-        return categoryRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy danh mục"));
+        return categoryService.findById(id);
     }
 
     private Product findProduct(Long id) {
@@ -165,14 +155,6 @@ public class AdminService {
         map.put("role", user.getRole().name());
         map.put("enabled", user.isEnabled());
         map.put("createdAt", user.getCreatedAt());
-        return map;
-    }
-
-    private Map<String, Object> categoryMap(Category category) {
-        Map<String, Object> map = new HashMap<>();
-        map.put("id", category.getId());
-        map.put("name", category.getName());
-        map.put("active", category.getActive());
         return map;
     }
 
