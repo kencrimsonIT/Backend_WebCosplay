@@ -59,9 +59,9 @@ public class SecurityConfig {
             "/api/payments/momo/return",
             "/api/payments/momo/ipn",
 
-            "/api/orders/**",
-            "/api/payments/**",
-            "/api/products/**"
+            "/api/products/**",
+
+            "/api/reviews/product/**"
     };
 
     @Bean
@@ -70,7 +70,17 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
+                        // 1. Cho phép các endpoint công khai trong WHITE_LIST
                         .requestMatchers(WHITE_LIST).permitAll()
+
+                        // 2. Các endpoint yêu cầu Đăng nhập (Authentication)
+                        // Đánh giá sản phẩm: Chỉ user đã login mới được POST
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/reviews").authenticated()
+
+                        // Đơn hàng: Chỉ user đã login mới được xem lịch sử & hủy đơn
+                        .requestMatchers("/api/orders/my", "/api/orders/*/cancel").authenticated()
+
+                        // 3. Mọi request khác đều phải đăng nhập
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session

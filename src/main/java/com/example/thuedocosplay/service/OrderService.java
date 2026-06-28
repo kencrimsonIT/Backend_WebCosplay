@@ -10,6 +10,7 @@ import com.example.thuedocosplay.entity.enums.PaymentMethod;
 import com.example.thuedocosplay.exception.ResourceNotFoundException;
 import com.example.thuedocosplay.repository.ProductRepository;
 import com.example.thuedocosplay.repository.RentalOrderRepository;
+import com.example.thuedocosplay.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ public class OrderService {
 
     private final RentalOrderRepository orderRepository;
     private final ProductRepository productRepository;
+    private final UserRepository userRepository;
 
     private static final AtomicLong ORDER_SEQ = new AtomicLong(100);
 
@@ -119,5 +121,41 @@ public class OrderService {
         // Lấy 6 số cuối của thời gian hiện tại (tính bằng mili-giây)
         long randomSuffix = System.currentTimeMillis() % 1000000;
         return "ORD-" + year + "-" + String.format("%06d", randomSuffix);
+    }
+    // Lấy đơn hàng theo email user (dùng cho /my endpoint)
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getOrdersByUserEmail(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
+
+        // (Lưu ý: Nếu Repository của bạn chưa có hàm này, xem Bước 3)
+        return orderRepository.findByCustomerOrEmail(user, email)
+                .stream()
+                .map(OrderMapper::toResponse)
+                .toList();
+    }
+
+    // User hủy đơn — chỉ khi đơn ở trạng thái chờ
+    @Transactional
+    public OrderResponse cancelOrderByUser(Long orderId, String userEmail, String reason) {
+        RentalOrder order = findOrder(orderId);
+
+        // Kiểm tra quyền: chỉ chủ đơn mới được hủy
+        boolean isOwner = userEmail.equals(order.getCustomerEmail())
+                || (order.getCustomer() != null
+                && userEmail.equals(order.getCustomer().getEmail()));
+        if (!isOwner) {
+            throw new IllegalStateException("Bạn không có quyền hủy đơn hàng này");
+        }
+
+        // Chỉ được hủy khi chưa xác nhận hoặc chờ thanh toán
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT
+                && order.getStatus() != OrderStatus.PENDING_CONFIRM) {
+            throw new IllegalStateException(
+                    "Không thể hủy đơn hàng ở trạng thái: " + order.getStatus());
+        }
+
+        order.setStatus(OrderStatus.CANCELLED);
+        return OrderMapper.toResponse(orderRepository.save(order));
     }
 }

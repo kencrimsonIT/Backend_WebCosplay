@@ -1,6 +1,7 @@
 package com.example.thuedocosplay.repository;
 
 import com.example.thuedocosplay.entity.RentalOrder;
+import com.example.thuedocosplay.entity.User;
 import com.example.thuedocosplay.entity.enums.OrderStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -20,6 +21,17 @@ public interface RentalOrderRepository
     Optional<RentalOrder> findByOrderCode(String orderCode);
 
     List<RentalOrder> findAllByOrderByCreatedAtDesc();
+
+    // Lấy đơn theo user entity HOẶC email (hỗ trợ cả đơn guest + đơn đã login)
+    @Query("""
+            SELECT o FROM RentalOrder o
+            WHERE o.customer = :user OR o.customerEmail = :email
+            ORDER BY o.createdAt DESC
+            """)
+    List<RentalOrder> findByCustomerOrEmail(
+            @Param("user") User user,
+            @Param("email") String email
+    );
 
     // ─── Đếm đơn theo trạng thái + khoảng thời gian ──────────────────────────
     long countByStatusInAndCreatedAtBetween(

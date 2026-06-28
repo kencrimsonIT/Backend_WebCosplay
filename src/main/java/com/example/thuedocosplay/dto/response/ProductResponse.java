@@ -11,17 +11,17 @@ import java.util.List;
 public class ProductResponse {
     private Long id;
     private String name;
-    private String categoryName;
     private Long categoryId;
-    private String description; // Add if needed, but not in current entity
+    private String categoryName;
+    private String description;
     private BigDecimal pricePerDay;
     private BigDecimal deposit;
     private String imageUrl;
     private Boolean visible;
-    
-    // UI specific fields from products.js
-    private Double rating;
-    private Integer reviewCount;
+
+    private Double avgRating;
+    private Long reviewCount;
+
     private List<String> tags;
     private List<String> includes;
 }
