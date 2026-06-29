@@ -37,10 +37,17 @@ public class ProductService {
                 .name(product.getName())
                 .categoryId(product.getCategory().getId())
                 .categoryName(product.getCategory().getName())
+                .sellerId(product.getSeller() != null ? product.getSeller().getId() : null)
+                .sellerName(product.getSeller() != null ? product.getSeller().getFullName() : null)
+                .description(product.getDescription())
                 .pricePerDay(product.getPricePerDay())
                 .deposit(product.getDeposit())
                 .imageUrl(product.getImageUrl())
                 .visible(product.getVisible())
+                .quantity(product.getQuantity())
+                .inventoryStatus(product.getInventoryStatus())
+                .createdAt(product.getCreatedAt())
+                .updatedAt(product.getUpdatedAt())
                 .rating(4.5) // Placeholder
                 .reviewCount(100) // Placeholder
                 .build();

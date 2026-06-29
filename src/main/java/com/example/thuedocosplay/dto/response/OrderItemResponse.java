@@ -12,8 +12,10 @@ public class OrderItemResponse {
     private Long productId;
     private String productName;
     private String categoryName;
+    private String productImageUrl;
     private String size;
     private Integer days;
     private Integer quantity;
+    private BigDecimal unitPrice;
     private BigDecimal lineTotal;
 }

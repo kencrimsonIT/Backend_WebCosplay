@@ -63,7 +63,7 @@ public class DataInitializer implements CommandLineRunner {
                 .visible(true)
                 .build());
 
-        userRepository.save(User.builder()
+        User admin = userRepository.save(User.builder()
                 .fullName("Admin Cosplay")
                 .email("admin@cosplay.vn")
                 .phone("0900000000")
@@ -72,7 +72,7 @@ public class DataInitializer implements CommandLineRunner {
                 .enabled(true)
                 .build());
 
-        userRepository.save(User.builder()
+        User seller = userRepository.save(User.builder()
                 .fullName("Shop Sakura")
                 .email("sakura@cosplay.vn")
                 .phone("0988777666")
@@ -81,7 +81,7 @@ public class DataInitializer implements CommandLineRunner {
                 .enabled(true)
                 .build());
 
-        userRepository.save(User.builder()
+        User client = userRepository.save(User.builder()
                 .fullName("Nguyễn Minh Tuấn")
                 .email("minhtuan@gmail.com")
                 .phone("0912345678")
@@ -89,6 +89,16 @@ public class DataInitializer implements CommandLineRunner {
                 .role(UserRole.CLIENT)
                 .enabled(true)
                 .build());
+
+        p1.setSeller(seller);
+        p1.setQuantity(3);
+        p2.setSeller(seller);
+        p2.setQuantity(2);
+        p3.setSeller(seller);
+        p3.setQuantity(1);
+        productRepository.save(p1);
+        productRepository.save(p2);
+        productRepository.save(p3);
 
         YearMonth current = YearMonth.now();
         LocalDateTime paidAt = current.atDay(5).atTime(10, 30);

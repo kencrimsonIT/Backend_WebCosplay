@@ -1,40 +1,28 @@
-package com.example.thuedocosplay.dto.request;
+package com.example.thuedocosplay.dto.response;
 
 import com.example.thuedocosplay.entity.enums.ProductInventoryStatus;
-import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotNull;
+import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 
 @Data
-public class UpsertProductRequest {
-    @NotBlank
+@Builder
+public class SellerProductResponse {
+    private Long id;
     private String name;
-
-    @NotNull
     private Long categoryId;
-
+    private String categoryName;
     private Long sellerId;
-
+    private String sellerName;
     private String description;
-
-    @NotNull
-    @DecimalMin("0")
     private BigDecimal pricePerDay;
-
-    @NotNull
-    @DecimalMin("0")
     private BigDecimal deposit;
-
     private String imageUrl;
-
     private Boolean visible;
-
-    @Min(0)
     private Integer quantity;
-
     private ProductInventoryStatus inventoryStatus;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }
