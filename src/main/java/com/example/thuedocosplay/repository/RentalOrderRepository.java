@@ -127,6 +127,26 @@ public interface RentalOrderRepository extends JpaRepository<RentalOrder, Long> 
     );
 
     @Query("""
+            SELECT CASE WHEN COUNT(o) > 0 THEN true ELSE false END
+            FROM RentalOrder o
+            JOIN o.items oi
+            WHERE o.id = :orderId
+              AND oi.product.id = :productId
+              AND o.status = :status
+              AND (
+                (o.customer IS NOT NULL AND o.customer.id = :customerId)
+                OR LOWER(o.customerEmail) = LOWER(:email)
+              )
+            """)
+    boolean existsCompletedCustomerOrderContainingProduct(
+            @Param("orderId") Long orderId,
+            @Param("productId") Long productId,
+            @Param("customerId") Long customerId,
+            @Param("email") String email,
+            @Param("status") OrderStatus status
+    );
+
+    @Query("""
             SELECT oi.categoryName AS categoryName, SUM(oi.lineTotal) AS revenue
             FROM OrderItem oi
             JOIN oi.order o

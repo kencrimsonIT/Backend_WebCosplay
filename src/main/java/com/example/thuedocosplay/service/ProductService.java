@@ -2,8 +2,10 @@ package com.example.thuedocosplay.service;
 
 import com.example.thuedocosplay.dto.response.ProductResponse;
 import com.example.thuedocosplay.entity.Product;
+import com.example.thuedocosplay.entity.enums.ReviewStatus;
 import com.example.thuedocosplay.exception.ResourceNotFoundException;
 import com.example.thuedocosplay.repository.ProductRepository;
+import com.example.thuedocosplay.repository.ProductReviewRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,6 +17,8 @@ import java.util.List;
 public class ProductService {
 
     private final ProductRepository productRepository;
+    private final ProductReviewRepository reviewRepository;
+    private final ProductReviewService reviewService;
 
     @Transactional(readOnly = true)
     public List<ProductResponse> getAllVisibleProducts() {
@@ -48,8 +52,13 @@ public class ProductService {
                 .inventoryStatus(product.getInventoryStatus())
                 .createdAt(product.getCreatedAt())
                 .updatedAt(product.getUpdatedAt())
-                .rating(4.5) // Placeholder
-                .reviewCount(100) // Placeholder
+                .rating(roundOne(reviewRepository.averageRatingByProduct(product.getId(), ReviewStatus.VISIBLE)))
+                .reviewCount((int) reviewRepository.countByProduct_IdAndStatus(product.getId(), ReviewStatus.VISIBLE))
+                .reviews(reviewService.listVisibleProductReviews(product.getId()))
                 .build();
+    }
+
+    private double roundOne(double value) {
+        return Math.round(value * 10.0) / 10.0;
     }
 }

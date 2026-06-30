@@ -30,6 +30,7 @@ public class ProductResponse {
     // UI specific fields from products.js
     private Double rating;
     private Integer reviewCount;
+    private List<ProductReviewResponse> reviews;
     private List<String> tags;
     private List<String> includes;
 }

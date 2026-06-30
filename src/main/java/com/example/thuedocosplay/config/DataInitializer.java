@@ -107,6 +107,7 @@ public class DataInitializer implements CommandLineRunner {
         seedPaidOrder("ORD-SEED-002", p2, anime.getName(), paidAt.plusDays(2), new BigDecimal("750000"));
         seedPaidOrder("ORD-SEED-003", p3, hero.getName(), paidAt.plusDays(4), new BigDecimal("540000"));
         seedPaidOrder("ORD-SEED-004", p1, anime.getName(), paidAt.plusDays(7), new BigDecimal("360000"));
+        seedClientOrder(client, "ORD-MINHTUAN-001", p1, anime.getName(), paidAt.plusDays(8));
 
         RentalOrder gameOrder = RentalOrder.builder()
                 .orderCode("ORD-SEED-005")
@@ -198,6 +199,44 @@ public class DataInitializer implements CommandLineRunner {
                 .quantity(1)
                 .lineTotal(lineTotal)
                 .build();
+        order.getItems().add(item);
+        orderRepository.save(order);
+    }
+
+    private void seedClientOrder(User client, String code, Product product, String categoryName, LocalDateTime paidAt) {
+        BigDecimal rentalTotal = product.getPricePerDay().multiply(new BigDecimal("3"));
+        BigDecimal warrantyTotal = new BigDecimal("50000");
+        BigDecimal depositTotal = product.getDeposit();
+
+        RentalOrder order = RentalOrder.builder()
+                .orderCode(code)
+                .customer(client)
+                .customerName(client.getFullName())
+                .customerPhone(client.getPhone())
+                .customerEmail(client.getEmail())
+                .shippingAddress("25 Nguyen Trai, Q.5, TP.HCM")
+                .status(OrderStatus.COMPLETED)
+                .paymentMethod(PaymentMethod.VNPAY)
+                .rentalTotal(rentalTotal)
+                .warrantyTotal(warrantyTotal)
+                .depositTotal(depositTotal)
+                .grandTotal(rentalTotal.add(warrantyTotal).add(depositTotal))
+                .rentFrom(paidAt.toLocalDate().minusDays(5))
+                .rentTo(paidAt.toLocalDate().minusDays(2))
+                .paidAt(paidAt)
+                .build();
+
+        OrderItem item = OrderItem.builder()
+                .order(order)
+                .product(product)
+                .productName(product.getName())
+                .categoryName(categoryName)
+                .size("M")
+                .days(3)
+                .quantity(1)
+                .lineTotal(rentalTotal)
+                .build();
+
         order.getItems().add(item);
         orderRepository.save(order);
     }
