@@ -51,12 +51,12 @@ public class Product {
     @Builder.Default
     private Boolean visible = true;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "integer default 1")
     @Builder.Default
     private Integer quantity = 1;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "inventory_status", nullable = false)
+    @Column(name = "inventory_status", nullable = false, columnDefinition = "varchar(255) default 'AVAILABLE'")
     @Builder.Default
     private ProductInventoryStatus inventoryStatus = ProductInventoryStatus.AVAILABLE;
 
