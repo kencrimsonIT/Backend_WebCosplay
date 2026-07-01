@@ -3,6 +3,7 @@ package com.example.thuedocosplay.entity;
 import com.example.thuedocosplay.entity.enums.ProductInventoryStatus;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.Formula;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
@@ -51,6 +52,9 @@ public class Product {
     @Builder.Default
     private Boolean visible = true;
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // CÁC TRƯỜNG QUẢN LÝ TỒN KHO & AUDITING (Từ nhánh main)
+    // ─────────────────────────────────────────────────────────────────────────
     @Column(nullable = false, columnDefinition = "integer default 1")
     @Builder.Default
     private Integer quantity = 1;
@@ -67,4 +71,13 @@ public class Product {
     @LastModifiedDate
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // CÁC TRƯỜNG TỐI ƯU HIỆU NĂNG (Từ nhánh của bạn)
+    // ─────────────────────────────────────────────────────────────────────────
+    @Formula("(SELECT COALESCE(AVG(r.rating), 0) FROM reviews r WHERE r.product_id = id)")
+    private Double rating;
+
+    @Formula("(SELECT COUNT(r.id) FROM reviews r WHERE r.product_id = id)")
+    private Integer reviewCount;
 }
