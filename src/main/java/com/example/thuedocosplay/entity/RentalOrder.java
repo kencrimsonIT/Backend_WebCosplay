@@ -66,6 +66,13 @@ public class RentalOrder {
     @Column(name = "grand_total", nullable = false, precision = 15, scale = 0)
     private BigDecimal grandTotal;
 
+    @Column(name = "promotion_code", length = 50)
+    private String promotionCode;
+
+    @Column(name = "discount_total", precision = 15, scale = 0)
+    @Builder.Default
+    private BigDecimal discountTotal = BigDecimal.ZERO;
+
     @Column(name = "rent_from")
     private LocalDate rentFrom;
 
