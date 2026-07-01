@@ -4,6 +4,7 @@ import com.example.thuedocosplay.dto.request.ReviewRequest;
 import com.example.thuedocosplay.dto.response.ReviewResponse;
 import com.example.thuedocosplay.entity.*;
 import com.example.thuedocosplay.entity.enums.OrderStatus;
+import com.example.thuedocosplay.entity.enums.ModerationStatus; // Đã thêm import này
 import com.example.thuedocosplay.exception.ResourceNotFoundException;
 import com.example.thuedocosplay.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -20,10 +21,7 @@ public class ReviewService {
     private final ProductRepository productRepository;
     private final RentalOrderRepository orderRepository;
     private final UserRepository userRepository;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Gửi đánh giá
-    // ─────────────────────────────────────────────────────────────────────────
+    private final ModerationService moderationService;
 
     @Transactional
     public ReviewResponse submitReview(String userEmail, ReviewRequest request) {
@@ -36,23 +34,19 @@ public class ReviewService {
         RentalOrder order = orderRepository.findById(request.getOrderId())
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
 
-        // Kiểm tra đơn hàng phải COMPLETED
         if (order.getStatus() != OrderStatus.COMPLETED) {
             throw new IllegalStateException("Chỉ được đánh giá khi đơn hàng đã hoàn thành");
         }
-
-        // Kiểm tra đơn hàng có chứa sản phẩm này không
         boolean productInOrder = order.getItems().stream()
                 .anyMatch(item -> item.getProduct() != null
                         && item.getProduct().getId().equals(request.getProductId()));
         if (!productInOrder) {
             throw new IllegalStateException("Sản phẩm không có trong đơn hàng này");
         }
-
-        // Kiểm tra đã đánh giá chưa
         if (reviewRepository.existsByUserIdAndProductId(user.getId(), product.getId())) {
             throw new IllegalStateException("Bạn đã đánh giá sản phẩm này rồi");
         }
+        ModerationStatus autoStatus = moderationService.autoFilterComment(request.getComment());
 
         Review review = Review.builder()
                 .user(user)
@@ -60,19 +54,16 @@ public class ReviewService {
                 .order(order)
                 .rating(request.getRating())
                 .comment(request.getComment())
+                .moderationStatus(autoStatus)
                 .build();
 
         return toResponse(reviewRepository.save(review));
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Lấy danh sách đánh giá của sản phẩm
-    // ─────────────────────────────────────────────────────────────────────────
-
     @Transactional(readOnly = true)
     public List<ReviewResponse> getReviewsByProduct(Long productId) {
         return reviewRepository.findByProductIdOrderByCreatedAtDesc(productId)
                 .stream()
+                .filter(r -> r.getModerationStatus() == ModerationStatus.APPROVED)
                 .map(this::toResponse)
                 .toList();
     }

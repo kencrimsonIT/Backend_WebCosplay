@@ -1,5 +1,6 @@
 package com.example.thuedocosplay.entity;
 
+import com.example.thuedocosplay.entity.enums.ModerationStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.springframework.data.annotation.CreatedDate;
@@ -53,4 +54,29 @@ public class Review {
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "moderation_status", nullable = false, length = 20)
+    @Builder.Default
+    private ModerationStatus moderationStatus = ModerationStatus.APPROVED;
+    // Mặc định APPROVED để không breaking các review cũ đã có.
+    // Có thể đổi default thành PENDING nếu muốn duyệt thủ công mọi review mới.
+
+    @Column(name = "report_count", nullable = false)
+    @Builder.Default
+    private Integer reportCount = 0;
+    // Số lần bị người dùng báo cáo
+
+    @Column(name = "moderation_note", length = 500)
+    private String moderationNote;
+    // Lý do admin ẩn/từ chối (hiển thị nội bộ, không public)
+
+    @Column(name = "moderated_at")
+    private java.time.LocalDateTime moderatedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "moderated_by")
+    private User moderatedBy;
+    // Admin nào đã xử lý
+
 }

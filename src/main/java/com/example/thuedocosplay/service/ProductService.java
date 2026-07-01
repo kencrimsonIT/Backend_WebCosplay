@@ -6,7 +6,6 @@ import com.example.thuedocosplay.dto.response.ProductResponse;
 import com.example.thuedocosplay.entity.Product;
 import com.example.thuedocosplay.exception.ResourceNotFoundException;
 import com.example.thuedocosplay.repository.ProductRepository;
-import com.example.thuedocosplay.repository.ReviewRepository;
 import com.example.thuedocosplay.repository.spec.ProductSpec;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -22,11 +21,6 @@ import java.util.List;
 public class ProductService {
 
     private final ProductRepository productRepository;
-    private final ReviewRepository reviewRepository;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Danh sách sản phẩm có filter + sort + phân trang
-    // ─────────────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public PagedResponse<ProductResponse> getProducts(ProductFilterRequest filter) {
@@ -38,8 +32,6 @@ public class ProductService {
             // "newest" là default, "best_seller" xử lý riêng dưới
             default            -> Sort.by("id").descending();
         };
-
-        // best_seller cần query riêng dựa trên lượt thuê — dùng pageable đặc biệt
         if ("best_seller".equals(filter.getSort())) {
             return getBestSellerPaged(filter);
         }
@@ -84,10 +76,6 @@ public class ProductService {
                 .build();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Trang chủ: sản phẩm mới nhất (8 cái)
-    // ─────────────────────────────────────────────────────────────────────────
-
     @Transactional(readOnly = true)
     public List<ProductResponse> getNewestProducts(int limit) {
         return productRepository
@@ -96,10 +84,6 @@ public class ProductService {
                 .map(this::toResponse)
                 .toList();
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Trang chủ: sản phẩm bán chạy nhất (8 cái)
-    // ─────────────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public List<ProductResponse> getBestSellerProducts(int limit) {
@@ -114,20 +98,12 @@ public class ProductService {
         return results.stream().map(this::toResponse).toList();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Xem chi tiết sản phẩm
-    // ─────────────────────────────────────────────────────────────────────────
-
     @Transactional(readOnly = true)
     public ProductResponse getProductById(Long id) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy sản phẩm: " + id));
         return toResponse(product);
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Giữ nguyên method cũ (dùng bởi AdminService)
-    // ─────────────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public List<ProductResponse> getAllVisibleProducts() {
@@ -137,13 +113,9 @@ public class ProductService {
                 .toList();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Helper
-    // ─────────────────────────────────────────────────────────────────────────
-
     public ProductResponse toResponse(Product product) {
-        Double avg   = reviewRepository.avgRatingByProductId(product.getId());
-        long   count = reviewRepository.countByProductId(product.getId());
+        Double avg = product.getRating();
+        Integer count = product.getReviewCount();
 
         return ProductResponse.builder()
                 .id(product.getId())
@@ -156,7 +128,7 @@ public class ProductService {
                 .imageUrl(product.getImageUrl())
                 .visible(product.getVisible())
                 .avgRating(avg != null ? Math.round(avg * 10.0) / 10.0 : 0.0)
-                .reviewCount(count)
+                .reviewCount(count != null ? count.longValue() : 0L)
                 .build();
     }
 }

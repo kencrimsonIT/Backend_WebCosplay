@@ -1,6 +1,9 @@
 package com.example.thuedocosplay.repository;
 
 import com.example.thuedocosplay.entity.Review;
+import com.example.thuedocosplay.entity.enums.ModerationStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -25,4 +28,24 @@ public interface ReviewRepository extends JpaRepository<Review, Long> {
 
     // Đếm số đánh giá của sản phẩm
     long countByProductId(Long productId);
+
+    // Danh sách review cho admin kiểm duyệt, lọc theo trạng thái
+    Page<Review> findByModerationStatusOrderByCreatedAtDesc(
+            ModerationStatus status, Pageable pageable);
+
+    // Tất cả review (mọi trạng thái) cho admin xem toàn bộ
+    Page<Review> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    // Chỉ lấy review đã duyệt khi hiển thị public (dùng ở ProductDetail)
+    List<Review> findByProductIdAndModerationStatusOrderByCreatedAtDesc(
+            Long productId, ModerationStatus status);
+
+    // Đếm theo từng trạng thái (cho dashboard số liệu)
+    long countByModerationStatus(ModerationStatus status);
+
+    // Review bị báo cáo nhiều — ưu tiên xử lý
+    @org.springframework.data.jpa.repository.Query(
+            "SELECT r FROM Review r WHERE r.reportCount > 0 ORDER BY r.reportCount DESC, r.createdAt DESC")
+    List<Review> findMostReported(Pageable pageable);
+
 }
