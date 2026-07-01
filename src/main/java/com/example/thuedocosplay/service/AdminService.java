@@ -7,6 +7,7 @@ import com.example.thuedocosplay.dto.response.CategoryResponse;
 import com.example.thuedocosplay.entity.Category;
 import com.example.thuedocosplay.entity.Product;
 import com.example.thuedocosplay.entity.User;
+import com.example.thuedocosplay.entity.enums.ProductInventoryStatus;
 import com.example.thuedocosplay.exception.ResourceNotFoundException;
 import com.example.thuedocosplay.repository.ProductRepository;
 import com.example.thuedocosplay.repository.UserRepository;
@@ -98,10 +99,14 @@ public class AdminService {
         Product product = Product.builder()
                 .name(request.getName())
                 .category(findCategory(request.getCategoryId()))
+                .seller(findSeller(request.getSellerId()))
+                .description(request.getDescription())
                 .pricePerDay(request.getPricePerDay())
                 .deposit(request.getDeposit())
                 .imageUrl(request.getImageUrl())
                 .visible(request.getVisible() != null ? request.getVisible() : true)
+                .quantity(request.getQuantity() != null ? request.getQuantity() : 1)
+                .inventoryStatus(request.getInventoryStatus() != null ? request.getInventoryStatus() : ProductInventoryStatus.AVAILABLE)
                 .build();
         return productMap(productRepository.save(product));
     }
@@ -111,11 +116,19 @@ public class AdminService {
         Product product = findProduct(id);
         product.setName(request.getName());
         product.setCategory(findCategory(request.getCategoryId()));
+        product.setSeller(findSeller(request.getSellerId()));
+        product.setDescription(request.getDescription());
         product.setPricePerDay(request.getPricePerDay());
         product.setDeposit(request.getDeposit());
         product.setImageUrl(request.getImageUrl());
         if (request.getVisible() != null) {
             product.setVisible(request.getVisible());
+        }
+        if (request.getQuantity() != null) {
+            product.setQuantity(request.getQuantity());
+        }
+        if (request.getInventoryStatus() != null) {
+            product.setInventoryStatus(request.getInventoryStatus());
         }
         return productMap(productRepository.save(product));
     }
@@ -146,6 +159,14 @@ public class AdminService {
                 .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy sản phẩm"));
     }
 
+    private User findSeller(Long id) {
+        if (id == null) {
+            return null;
+        }
+        return userRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay nguoi ban"));
+    }
+
     private Map<String, Object> userMap(User user) {
         Map<String, Object> map = new HashMap<>();
         map.put("id", user.getId());
@@ -164,10 +185,17 @@ public class AdminService {
         map.put("name", product.getName());
         map.put("categoryId", product.getCategory().getId());
         map.put("categoryName", product.getCategory().getName());
+        map.put("sellerId", product.getSeller() != null ? product.getSeller().getId() : null);
+        map.put("sellerName", product.getSeller() != null ? product.getSeller().getFullName() : null);
+        map.put("description", product.getDescription());
         map.put("pricePerDay", product.getPricePerDay());
         map.put("deposit", product.getDeposit());
         map.put("imageUrl", product.getImageUrl());
         map.put("visible", product.getVisible());
+        map.put("quantity", product.getQuantity());
+        map.put("inventoryStatus", product.getInventoryStatus());
+        map.put("createdAt", product.getCreatedAt());
+        map.put("updatedAt", product.getUpdatedAt());
         return map;
     }
 }

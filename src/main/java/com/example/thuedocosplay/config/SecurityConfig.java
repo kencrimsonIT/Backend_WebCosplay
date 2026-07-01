@@ -72,17 +72,9 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
-                        // 1. Cho phép các endpoint công khai trong WHITE_LIST
                         .requestMatchers(WHITE_LIST).permitAll()
-
-                        // 2. Các endpoint yêu cầu Đăng nhập (Authentication)
-                        // Đánh giá sản phẩm: Chỉ user đã login mới được POST
                         .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/reviews").authenticated()
-
-                        // Đơn hàng: Chỉ user đã login mới được xem lịch sử & hủy đơn
                         .requestMatchers("/api/orders/my", "/api/orders/*/cancel").authenticated()
-
-                        // 3. Mọi request khác đều phải đăng nhập
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session
@@ -102,7 +94,8 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of("http://localhost:3000"));
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"));
+        // Đã gộp và xử lý xung đột PATCH tại đây
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Requested-With", "Origin"));
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
