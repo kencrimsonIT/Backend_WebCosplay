@@ -36,6 +36,7 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final VoucherService voucherService;
+    private final PromotionService promotionService;
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
@@ -63,6 +64,7 @@ public class OrderService {
                 .depositTotal(request.getDepositTotal())
                 .discountTotal(BigDecimal.ZERO)
                 .grandTotal(request.getGrandTotal())
+                .promotionCode(request.getPromotionCode())
                 .rentFrom(request.getRentFrom())
                 .rentTo(request.getRentTo())
                 .build();
@@ -88,7 +90,17 @@ public class OrderService {
             order.getItems().add(item);
         }
 
-        VoucherApplyResponse voucherResult = voucherService.applyVoucherToOrder(request, customer, order);
+        VoucherApplyResponse voucherResult = null;
+        if (request.getVoucherCode() != null && !request.getVoucherCode().isBlank()) {
+            voucherResult = voucherService.applyVoucherToOrder(request, customer, order);
+        } else if (request.getDiscountTotal() != null && request.getDiscountTotal().compareTo(BigDecimal.ZERO) > 0) {
+            order.setDiscountTotal(request.getDiscountTotal());
+            order.setGrandTotal(order.getRentalTotal()
+                    .add(order.getWarrantyTotal())
+                    .add(order.getDepositTotal())
+                    .subtract(request.getDiscountTotal())
+                    .max(BigDecimal.ZERO));
+        }
 
         if (!online) {
             order.setPaidAt(LocalDateTime.now());
@@ -96,6 +108,10 @@ public class OrderService {
 
         RentalOrder saved = orderRepository.save(order);
         voucherService.recordVoucherUsage(voucherResult, request, customer, saved);
+        if (saved.getPromotionCode() != null && !saved.getPromotionCode().isBlank()) {
+            promotionService.incrementUsedCount(saved.getPromotionCode());
+        }
+
         log.info(
                 "[Order] Created orderCode={} customerId={} customerEmail={} itemCount={} rentalTotal={} depositTotal={} warrantyTotal={} discountTotal={} grandTotal={} paymentMethod={} status={}",
                 saved.getOrderCode(),
@@ -128,30 +144,7 @@ public class OrderService {
     public List<OrderResponse> getMyOrderHistory(String currentUserEmail, OrderStatus status, LocalDate fromDate, LocalDate toDate) {
         User user = requireCurrentUser(currentUserEmail);
         validateDateRange(fromDate, toDate);
-
-        List<RentalOrder> orders = orderRepository.findCustomerHistory(
-                user.getId(),
-                user.getEmail(),
-                status,
-                fromDate,
-                toDate
-        );
-        BigDecimal totalGrand = orders.stream()
-                .map(RentalOrder::getGrandTotal)
-                .filter(value -> value != null)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        log.info(
-                "[OrderHistory] Listed customerId={} email={} status={} fromDate={} toDate={} orderCount={} totalGrand={}",
-                user.getId(),
-                user.getEmail(),
-                status,
-                fromDate,
-                toDate,
-                orders.size(),
-                totalGrand
-        );
-
+        List<RentalOrder> orders = orderRepository.findCustomerHistory(user.getId(), user.getEmail(), status, fromDate, toDate);
         return OrderMapper.toResponses(orders);
     }
 
@@ -159,34 +152,43 @@ public class OrderService {
     public OrderResponse getMyOrderDetail(String currentUserEmail, Long orderId) {
         User user = requireCurrentUser(currentUserEmail);
         RentalOrder order = orderRepository.findCustomerOrderDetail(orderId, user.getId(), user.getEmail())
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang trong lich su mua cua ban"));
-
-        log.info(
-                "[OrderHistory] Viewed detail customerId={} email={} orderId={} orderCode={} grandTotal={} status={} itemCount={}",
-                user.getId(),
-                user.getEmail(),
-                order.getId(),
-                order.getOrderCode(),
-                order.getGrandTotal(),
-                order.getStatus(),
-                order.getItems().size()
-        );
-
+                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang"));
         return OrderMapper.toResponse(order);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getOrdersByUserEmail(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay nguoi dung"));
+        return orderRepository.findByCustomerOrEmail(user, email).stream().map(OrderMapper::toResponse).toList();
     }
 
     @Transactional
     public OrderResponse updateStatus(Long id, UpdateOrderStatusRequest request) {
         RentalOrder order = findOrder(id);
-        OrderStatus oldStatus = order.getStatus();
         order.setStatus(request.getStatus());
         if (request.getStatus() == OrderStatus.COMPLETED && order.getPaidAt() == null) {
             order.setPaidAt(LocalDateTime.now());
         }
-        RentalOrder saved = orderRepository.save(order);
-        log.info("[Order] Updated status orderId={} orderCode={} oldStatus={} newStatus={}",
-                saved.getId(), saved.getOrderCode(), oldStatus, saved.getStatus());
-        return OrderMapper.toResponse(saved);
+        return OrderMapper.toResponse(orderRepository.save(order));
+    }
+
+    @Transactional
+    public OrderResponse cancelOrderByUser(Long orderId, String userEmail, String reason) {
+        RentalOrder order = findOrder(orderId);
+        boolean isOwner = userEmail.equals(order.getCustomerEmail())
+                || (order.getCustomer() != null && userEmail.equals(order.getCustomer().getEmail()));
+
+        if (!isOwner) {
+            throw new IllegalStateException("Ban khong co quyen huy don hang nay");
+        }
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT && order.getStatus() != OrderStatus.PENDING_CONFIRM) {
+            throw new IllegalStateException("Khong the huy don hang o trang thai: " + order.getStatus());
+        }
+
+        order.setStatus(OrderStatus.CANCELLED);
+        log.info("[Order] Cancelled orderId={} reason={}", orderId, reason);
+        return OrderMapper.toResponse(orderRepository.save(order));
     }
 
     @Transactional
@@ -205,34 +207,27 @@ public class OrderService {
 
     private User requireCurrentUser(String currentUserEmail) {
         if (!hasCurrentUserEmail(currentUserEmail)) {
-            log.warn("[OrderHistory] Rejected unauthenticated request");
-            throw new AuthenticationCredentialsNotFoundException("Vui long dang nhap de xem lich su mua");
+            throw new AuthenticationCredentialsNotFoundException("Vui long dang nhap");
         }
         return userRepository.findByEmail(currentUserEmail)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay tai khoan dang dang nhap"));
+                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay tai khoan"));
     }
 
     private User resolveOrderCustomer(String currentUserEmail, String requestEmail) {
         if (hasCurrentUserEmail(currentUserEmail)) {
             return userRepository.findByEmail(currentUserEmail).orElse(null);
         }
-        if (requestEmail != null && !requestEmail.isBlank()) {
-            return userRepository.findByEmail(requestEmail).orElse(null);
-        }
-        return null;
+        return requestEmail != null && !requestEmail.isBlank()
+                ? userRepository.findByEmail(requestEmail).orElse(null)
+                : null;
     }
 
     private String resolveCustomerEmail(User customer, String requestEmail) {
-        if (customer != null) {
-            return customer.getEmail();
-        }
-        return requestEmail;
+        return customer != null ? customer.getEmail() : requestEmail;
     }
 
     private boolean hasCurrentUserEmail(String currentUserEmail) {
-        return currentUserEmail != null
-                && !currentUserEmail.isBlank()
-                && !"anonymousUser".equals(currentUserEmail);
+        return currentUserEmail != null && !currentUserEmail.isBlank() && !"anonymousUser".equals(currentUserEmail);
     }
 
     private void validateDateRange(LocalDate fromDate, LocalDate toDate) {
@@ -242,8 +237,6 @@ public class OrderService {
     }
 
     private String generateOrderCode() {
-        int year = Year.now().getValue();
-        long randomSuffix = System.currentTimeMillis() % 1000000;
-        return "ORD-" + year + "-" + String.format("%06d", randomSuffix);
+        return "ORD-" + Year.now().getValue() + "-" + String.format("%06d", System.currentTimeMillis() % 1000000);
     }
 }

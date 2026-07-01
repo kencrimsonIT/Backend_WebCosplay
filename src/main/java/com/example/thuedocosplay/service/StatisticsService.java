@@ -1,12 +1,14 @@
 package com.example.thuedocosplay.service;
 
 import com.example.thuedocosplay.dto.response.CategoryRevenueResponse;
+import com.example.thuedocosplay.dto.response.DashboardSummaryResponse;
 import com.example.thuedocosplay.dto.response.RevenueTimelineResponse;
 import com.example.thuedocosplay.entity.RentalOrder;
 import com.example.thuedocosplay.entity.enums.OrderStatus;
 import com.example.thuedocosplay.repository.RentalOrderRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,12 +18,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -29,63 +26,80 @@ import java.util.Map;
 public class StatisticsService {
 
     private static final String[] CHART_COLORS = {
-            "#7c3aed", "#ec4899", "#06b6d4", "#f59e0b", "#10b981", "#6366f1", "#ef4444"
+            "#7c3aed", "#ec4899", "#06b6d4", "#f59e0b",
+            "#10b981", "#6366f1", "#ef4444", "#f97316", "#14b8a6"
     };
 
     private static final List<OrderStatus> REVENUE_STATUSES = List.of(
-            OrderStatus.PENDING_CONFIRM,
-            OrderStatus.CONFIRMED,
-            OrderStatus.RENTING,
-            OrderStatus.COMPLETED
+            OrderStatus.PENDING_CONFIRM, OrderStatus.CONFIRMED, OrderStatus.RENTING, OrderStatus.COMPLETED
     );
 
     private static final List<OrderStatus> ACTIVE_DEPOSIT_STATUSES = List.of(
-            OrderStatus.PENDING_CONFIRM,
-            OrderStatus.CONFIRMED,
-            OrderStatus.RENTING
+            OrderStatus.PENDING_CONFIRM, OrderStatus.CONFIRMED, OrderStatus.RENTING
     );
 
     private final RentalOrderRepository orderRepository;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DASHBOARD & DOANH THU DANH MỤC
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Transactional(readOnly = true)
+    public DashboardSummaryResponse dashboardSummary(int year, int month) {
+        YearMonth ym = YearMonth.of(year, month);
+        LocalDateTime from = ym.atDay(1).atStartOfDay();
+        LocalDateTime to = ym.plusMonths(1).atDay(1).atStartOfDay();
+
+        long totalOrders = orderRepository.countByCreatedAtBetween(from, to);
+        long pendingOrders = orderRepository.countByStatusInAndCreatedAtBetween(List.of(OrderStatus.PENDING_PAYMENT, OrderStatus.PENDING_CONFIRM), from, to);
+        long confirmedOrders = orderRepository.countByStatusInAndCreatedAtBetween(List.of(OrderStatus.CONFIRMED, OrderStatus.RENTING), from, to);
+        long completedOrders = orderRepository.countByStatusInAndCreatedAtBetween(List.of(OrderStatus.COMPLETED), from, to);
+        long cancelledOrders = orderRepository.countByStatusInAndCreatedAtBetween(List.of(OrderStatus.CANCELLED), from, to);
+
+        BigDecimal totalRevenue = orderRepository.sumRevenue(REVENUE_STATUSES, from, to);
+        CategoryRevenueResponse revenueByCategory = buildCategoryRevenue(year, month, from, to, totalRevenue);
+
+        var topRows = orderRepository.topProductsByRevenue(from, to, REVENUE_STATUSES, PageRequest.of(0, 5));
+        List<DashboardSummaryResponse.TopProductItem> topProducts = topRows.stream()
+                .map(r -> DashboardSummaryResponse.TopProductItem.builder()
+                        .productName(r.getProductName()).categoryName(r.getCategoryName())
+                        .totalQuantity(r.getTotalQuantity()).totalRevenue(r.getTotalRevenue()).build())
+                .toList();
+
+        return DashboardSummaryResponse.builder()
+                .year(year).month(month).totalRevenue(totalRevenue == null ? BigDecimal.ZERO : totalRevenue)
+                .totalOrders(totalOrders).pendingOrders(pendingOrders).confirmedOrders(confirmedOrders)
+                .completedOrders(completedOrders).cancelledOrders(cancelledOrders)
+                .revenueByCategory(revenueByCategory).topProducts(topProducts).build();
+    }
 
     @Transactional(readOnly = true)
     public CategoryRevenueResponse revenueByCategory(int year, int month) {
         YearMonth ym = YearMonth.of(year, month);
         LocalDateTime from = ym.atDay(1).atStartOfDay();
         LocalDateTime to = ym.plusMonths(1).atDay(1).atStartOfDay();
+        BigDecimal total = orderRepository.sumRevenue(REVENUE_STATUSES, from, to);
+        return buildCategoryRevenue(year, month, from, to, total == null ? BigDecimal.ZERO : total);
+    }
 
+    private CategoryRevenueResponse buildCategoryRevenue(int year, int month, LocalDateTime from, LocalDateTime to, BigDecimal totalRevenue) {
         var rows = orderRepository.sumRevenueByCategoryInMonth(from, to, REVENUE_STATUSES);
-
-        BigDecimal total = rows.stream()
-                .map(RentalOrderRepository.CategoryRevenueProjection::getRevenue)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
         List<CategoryRevenueResponse.Slice> slices = new ArrayList<>();
         int colorIdx = 0;
-
         for (var row : rows) {
             BigDecimal revenue = row.getRevenue();
-            double pct = total.compareTo(BigDecimal.ZERO) == 0
-                    ? 0
-                    : revenue.multiply(BigDecimal.valueOf(100))
-                    .divide(total, 2, RoundingMode.HALF_UP)
-                    .doubleValue();
-
+            double pct = totalRevenue.compareTo(BigDecimal.ZERO) == 0 ? 0
+                    : revenue.multiply(BigDecimal.valueOf(100)).divide(totalRevenue, 2, RoundingMode.HALF_UP).doubleValue();
             slices.add(CategoryRevenueResponse.Slice.builder()
-                    .categoryName(row.getCategoryName())
-                    .revenue(revenue)
-                    .percentage(pct)
-                    .color(CHART_COLORS[colorIdx % CHART_COLORS.length])
-                    .build());
-            colorIdx++;
+                    .categoryName(row.getCategoryName()).revenue(revenue).percentage(pct)
+                    .color(CHART_COLORS[colorIdx++ % CHART_COLORS.length]).build());
         }
-
-        return CategoryRevenueResponse.builder()
-                .year(year)
-                .month(month)
-                .totalRevenue(total)
-                .slices(slices)
-                .build();
+        return CategoryRevenueResponse.builder().year(year).month(month).totalRevenue(totalRevenue).slices(slices).build();
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // DOANH THU TIMELINE
+    // ─────────────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public RevenueTimelineResponse revenueTimeline(LocalDate fromDate, LocalDate toDate, String groupBy) {
@@ -106,61 +120,27 @@ public class StatisticsService {
             LocalDate paidDate = order.getPaidAt().toLocalDate();
             String bucketKey = group.key(paidDate);
             Bucket bucket = buckets.get(bucketKey);
-            if (bucket == null) {
-                continue;
+            if (bucket != null) {
+                bucket.add(order);
+                paymentBuckets.computeIfAbsent(order.getPaymentMethod().name(), PaymentBucket::new).add(order);
             }
-            bucket.add(order);
-            paymentBuckets
-                    .computeIfAbsent(order.getPaymentMethod().name(), PaymentBucket::new)
-                    .add(order);
         }
 
         SummaryAccumulator summary = new SummaryAccumulator();
-        for (RentalOrder order : orders) {
-            summary.add(order);
-        }
-
-        RevenueTimelineResponse.Summary summaryResponse = RevenueTimelineResponse.Summary.builder()
-                .totalRevenue(summary.totalRevenue)
-                .rentalRevenue(summary.rentalRevenue)
-                .depositCollected(summary.depositCollected)
-                .depositHeld(summary.depositHeld)
-                .warrantyRevenue(summary.warrantyRevenue)
-                .averageOrderValue(summary.averageOrderValue())
-                .orderCount(summary.orderCount)
-                .completedOrderCount(summary.completedOrderCount)
-                .activeDepositOrderCount(summary.activeDepositOrderCount)
-                .build();
-
-        List<RevenueTimelineResponse.Bar> bars = buckets.values().stream()
-                .map(Bucket::toBar)
-                .toList();
-
-        List<RevenueTimelineResponse.PaymentMethodBreakdown> paymentMethods = paymentBuckets.values().stream()
-                .sorted(Comparator.comparing(PaymentBucket::getTotalRevenue).reversed())
-                .map(bucket -> bucket.toResponse(summary.totalRevenue))
-                .toList();
-
-        log.info(
-                "[Statistics] Revenue timeline fromDate={} toDate={} groupBy={} orderCount={} totalRevenue={} rentalRevenue={} depositCollected={} depositHeld={} warrantyRevenue={}",
-                resolvedFrom,
-                resolvedTo,
-                group.value,
-                summary.orderCount,
-                summary.totalRevenue,
-                summary.rentalRevenue,
-                summary.depositCollected,
-                summary.depositHeld,
-                summary.warrantyRevenue
-        );
+        orders.forEach(summary::add);
 
         return RevenueTimelineResponse.builder()
-                .fromDate(resolvedFrom)
-                .toDate(resolvedTo)
-                .groupBy(group.value)
-                .summary(summaryResponse)
-                .bars(bars)
-                .paymentMethods(paymentMethods)
+                .fromDate(resolvedFrom).toDate(resolvedTo).groupBy(group.value)
+                .summary(RevenueTimelineResponse.Summary.builder()
+                        .totalRevenue(summary.totalRevenue).rentalRevenue(summary.rentalRevenue)
+                        .depositCollected(summary.depositCollected).depositHeld(summary.depositHeld)
+                        .warrantyRevenue(summary.warrantyRevenue).averageOrderValue(summary.averageOrderValue())
+                        .orderCount(summary.orderCount).completedOrderCount(summary.completedOrderCount)
+                        .activeDepositOrderCount(summary.activeDepositOrderCount).build())
+                .bars(buckets.values().stream().map(Bucket::toBar).toList())
+                .paymentMethods(paymentBuckets.values().stream()
+                        .sorted(Comparator.comparing(PaymentBucket::getTotalRevenue).reversed())
+                        .map(b -> b.toResponse(summary.totalRevenue)).toList())
                 .build();
     }
 
@@ -168,12 +148,11 @@ public class StatisticsService {
         Map<String, Bucket> buckets = new LinkedHashMap<>();
         LocalDate cursor = group.periodStart(fromDate);
         LocalDate last = group.periodStart(toDate);
-
         while (!cursor.isAfter(last)) {
-            LocalDate periodStart = cursor.isBefore(fromDate) ? fromDate : cursor;
-            LocalDate rawPeriodEnd = group.next(cursor).minusDays(1);
-            LocalDate periodEnd = rawPeriodEnd.isAfter(toDate) ? toDate : rawPeriodEnd;
-            Bucket bucket = new Bucket(group.key(cursor), group.label(cursor), periodStart, periodEnd);
+            LocalDate start = cursor.isBefore(fromDate) ? fromDate : cursor;
+            LocalDate end = group.next(cursor).minusDays(1);
+            end = end.isAfter(toDate) ? toDate : end;
+            Bucket bucket = new Bucket(group.key(cursor), group.label(cursor), start, end);
             buckets.put(bucket.key, bucket);
             cursor = group.next(cursor);
         }
@@ -181,180 +160,57 @@ public class StatisticsService {
     }
 
     private void validateRange(LocalDate fromDate, LocalDate toDate, RevenueGroup group) {
-        if (fromDate.isAfter(toDate)) {
-            throw new IllegalArgumentException("Ngay bat dau khong duoc sau ngay ket thuc");
-        }
-
-        long maxDays = switch (group) {
-            case DAY -> 370;
-            case MONTH -> 3660;
-            case YEAR -> 36500;
-        };
-
-        if (fromDate.plusDays(maxDays).isBefore(toDate)) {
-            throw new IllegalArgumentException("Khoang thoi gian qua lon cho groupBy=" + group.value);
-        }
+        if (fromDate.isAfter(toDate)) throw new IllegalArgumentException("Ngày bắt đầu không được sau ngày kết thúc");
+        long maxDays = (group == RevenueGroup.DAY) ? 370 : 36600;
+        if (fromDate.plusDays(maxDays).isBefore(toDate)) throw new IllegalArgumentException("Khoảng thời gian quá lớn");
     }
 
-    private static BigDecimal safe(BigDecimal value) {
-        return value != null ? value : BigDecimal.ZERO;
-    }
+    private static BigDecimal safe(BigDecimal v) { return v != null ? v : BigDecimal.ZERO; }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // INNER CLASSES (Bucket, Accumulator, Enum...)
+    // ─────────────────────────────────────────────────────────────────────────
 
     private enum RevenueGroup {
-        DAY("day"),
-        MONTH("month"),
-        YEAR("year");
-
-        private static final DateTimeFormatter DAY_KEY = DateTimeFormatter.ISO_LOCAL_DATE;
-        private static final DateTimeFormatter DAY_LABEL = DateTimeFormatter.ofPattern("dd/MM", Locale.US);
-        private static final DateTimeFormatter MONTH_KEY = DateTimeFormatter.ofPattern("yyyy-MM", Locale.US);
-        private static final DateTimeFormatter MONTH_LABEL = DateTimeFormatter.ofPattern("MM/yyyy", Locale.US);
-        private static final DateTimeFormatter YEAR_KEY = DateTimeFormatter.ofPattern("yyyy", Locale.US);
-
+        DAY("day"), MONTH("month"), YEAR("year");
         private final String value;
-
-        RevenueGroup(String value) {
-            this.value = value;
-        }
-
-        static RevenueGroup from(String value) {
-            if (value == null || value.isBlank()) {
-                return DAY;
-            }
-            for (RevenueGroup group : values()) {
-                if (group.value.equalsIgnoreCase(value)) {
-                    return group;
-                }
-            }
-            throw new IllegalArgumentException("groupBy chi ho tro: day, month, year");
-        }
-
-        String key(LocalDate date) {
-            return switch (this) {
-                case DAY -> DAY_KEY.format(date);
-                case MONTH -> MONTH_KEY.format(date);
-                case YEAR -> YEAR_KEY.format(date);
-            };
-        }
-
-        String label(LocalDate date) {
-            return switch (this) {
-                case DAY -> DAY_LABEL.format(date);
-                case MONTH -> MONTH_LABEL.format(date);
-                case YEAR -> YEAR_KEY.format(date);
-            };
-        }
-
-        LocalDate periodStart(LocalDate date) {
-            return switch (this) {
-                case DAY -> date;
-                case MONTH -> date.withDayOfMonth(1);
-                case YEAR -> date.withDayOfYear(1);
-            };
-        }
-
-        LocalDate next(LocalDate date) {
-            return switch (this) {
-                case DAY -> date.plusDays(1);
-                case MONTH -> date.plusMonths(1).withDayOfMonth(1);
-                case YEAR -> date.plusYears(1).withDayOfYear(1);
-            };
-        }
+        RevenueGroup(String v) { this.value = v; }
+        static RevenueGroup from(String v) { return Arrays.stream(values()).filter(g -> g.value.equalsIgnoreCase(v)).findFirst().orElse(DAY); }
+        String key(LocalDate d) { return switch (this) { case MONTH -> d.format(DateTimeFormatter.ofPattern("yyyy-MM")); case YEAR -> String.valueOf(d.getYear()); default -> d.toString(); }; }
+        String label(LocalDate d) { return switch (this) { case MONTH -> d.format(DateTimeFormatter.ofPattern("MM/yyyy")); case YEAR -> String.valueOf(d.getYear()); default -> d.format(DateTimeFormatter.ofPattern("dd/MM")); }; }
+        LocalDate periodStart(LocalDate d) { return switch (this) { case MONTH -> d.withDayOfMonth(1); case YEAR -> d.withDayOfYear(1); default -> d; }; }
+        LocalDate next(LocalDate d) { return switch (this) { case MONTH -> d.plusMonths(1).withDayOfMonth(1); case YEAR -> d.plusYears(1).withDayOfYear(1); default -> d.plusDays(1); }; }
     }
 
     private static class SummaryAccumulator {
-        protected BigDecimal totalRevenue = BigDecimal.ZERO;
-        protected BigDecimal rentalRevenue = BigDecimal.ZERO;
-        protected BigDecimal depositCollected = BigDecimal.ZERO;
-        protected BigDecimal depositHeld = BigDecimal.ZERO;
-        protected BigDecimal warrantyRevenue = BigDecimal.ZERO;
-        protected long orderCount;
-        protected long completedOrderCount;
-        protected long activeDepositOrderCount;
-
-        void add(RentalOrder order) {
-            totalRevenue = totalRevenue.add(safe(order.getGrandTotal()));
-            rentalRevenue = rentalRevenue.add(safe(order.getRentalTotal()));
-            depositCollected = depositCollected.add(safe(order.getDepositTotal()));
-            warrantyRevenue = warrantyRevenue.add(safe(order.getWarrantyTotal()));
+        BigDecimal totalRevenue = BigDecimal.ZERO, rentalRevenue = BigDecimal.ZERO, depositCollected = BigDecimal.ZERO, depositHeld = BigDecimal.ZERO, warrantyRevenue = BigDecimal.ZERO;
+        long orderCount, completedOrderCount, activeDepositOrderCount;
+        void add(RentalOrder o) {
+            totalRevenue = totalRevenue.add(safe(o.getGrandTotal()));
+            rentalRevenue = rentalRevenue.add(safe(o.getRentalTotal()));
+            depositCollected = depositCollected.add(safe(o.getDepositTotal()));
+            warrantyRevenue = warrantyRevenue.add(safe(o.getWarrantyTotal()));
             orderCount++;
-
-            if (order.getStatus() == OrderStatus.COMPLETED) {
-                completedOrderCount++;
-            }
-            if (ACTIVE_DEPOSIT_STATUSES.contains(order.getStatus())) {
-                depositHeld = depositHeld.add(safe(order.getDepositTotal()));
-                activeDepositOrderCount++;
-            }
+            if (o.getStatus() == OrderStatus.COMPLETED) completedOrderCount++;
+            if (ACTIVE_DEPOSIT_STATUSES.contains(o.getStatus())) { depositHeld = depositHeld.add(safe(o.getDepositTotal())); activeDepositOrderCount++; }
         }
-
-        BigDecimal averageOrderValue() {
-            if (orderCount == 0) {
-                return BigDecimal.ZERO;
-            }
-            return totalRevenue.divide(BigDecimal.valueOf(orderCount), 0, RoundingMode.HALF_UP);
-        }
+        BigDecimal averageOrderValue() { return orderCount == 0 ? BigDecimal.ZERO : totalRevenue.divide(BigDecimal.valueOf(orderCount), 0, RoundingMode.HALF_UP); }
     }
 
     private static class Bucket extends SummaryAccumulator {
-        private final String key;
-        private final String label;
-        private final LocalDate periodStart;
-        private final LocalDate periodEnd;
-
-        Bucket(String key, String label, LocalDate periodStart, LocalDate periodEnd) {
-            this.key = key;
-            this.label = label;
-            this.periodStart = periodStart;
-            this.periodEnd = periodEnd;
-        }
-
-        RevenueTimelineResponse.Bar toBar() {
-            return RevenueTimelineResponse.Bar.builder()
-                    .key(key)
-                    .label(label)
-                    .periodStart(periodStart)
-                    .periodEnd(periodEnd)
-                    .totalRevenue(totalRevenue)
-                    .rentalRevenue(rentalRevenue)
-                    .depositCollected(depositCollected)
-                    .warrantyRevenue(warrantyRevenue)
-                    .orderCount(orderCount)
-                    .completedOrderCount(completedOrderCount)
-                    .build();
-        }
+        private final String key, label;
+        private final LocalDate periodStart, periodEnd;
+        Bucket(String k, String l, LocalDate s, LocalDate e) { this.key = k; this.label = l; this.periodStart = s; this.periodEnd = e; }
+        RevenueTimelineResponse.Bar toBar() { return RevenueTimelineResponse.Bar.builder().key(key).label(label).periodStart(periodStart).periodEnd(periodEnd).totalRevenue(totalRevenue).rentalRevenue(rentalRevenue).depositCollected(depositCollected).warrantyRevenue(warrantyRevenue).orderCount(orderCount).completedOrderCount(completedOrderCount).build(); }
     }
 
     private static class PaymentBucket {
         private final String method;
         private BigDecimal totalRevenue = BigDecimal.ZERO;
         private long orderCount;
-
-        PaymentBucket(String method) {
-            this.method = method;
-        }
-
-        void add(RentalOrder order) {
-            totalRevenue = totalRevenue.add(safe(order.getGrandTotal()));
-            orderCount++;
-        }
-
-        BigDecimal getTotalRevenue() {
-            return totalRevenue;
-        }
-
-        RevenueTimelineResponse.PaymentMethodBreakdown toResponse(BigDecimal grandTotal) {
-            double percentage = grandTotal.compareTo(BigDecimal.ZERO) == 0
-                    ? 0
-                    : totalRevenue.multiply(BigDecimal.valueOf(100))
-                    .divide(grandTotal, 2, RoundingMode.HALF_UP)
-                    .doubleValue();
-            return RevenueTimelineResponse.PaymentMethodBreakdown.builder()
-                    .method(method)
-                    .totalRevenue(totalRevenue)
-                    .orderCount(orderCount)
-                    .percentage(percentage)
-                    .build();
-        }
+        PaymentBucket(String m) { this.method = m; }
+        void add(RentalOrder o) { totalRevenue = totalRevenue.add(safe(o.getGrandTotal())); orderCount++; }
+        BigDecimal getTotalRevenue() { return totalRevenue; }
+        RevenueTimelineResponse.PaymentMethodBreakdown toResponse(BigDecimal total) { return RevenueTimelineResponse.PaymentMethodBreakdown.builder().method(method).totalRevenue(totalRevenue).orderCount(orderCount).percentage(total.compareTo(BigDecimal.ZERO) == 0 ? 0 : totalRevenue.multiply(BigDecimal.valueOf(100)).divide(total, 2, RoundingMode.HALF_UP).doubleValue()).build(); }
     }
 }

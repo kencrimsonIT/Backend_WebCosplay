@@ -32,6 +32,7 @@ public final class OrderMapper {
                 .discountTotal(order.getDiscountTotal())
                 .voucherCode(order.getVoucherCode())
                 .voucherTitle(order.getVoucherTitle())
+                .promotionCode(order.getPromotionCode())
                 .grandTotal(order.getGrandTotal())
                 .rentFrom(order.getRentFrom())
                 .rentTo(order.getRentTo())

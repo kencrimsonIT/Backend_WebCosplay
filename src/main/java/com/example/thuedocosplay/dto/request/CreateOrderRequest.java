@@ -46,6 +46,8 @@ public class CreateOrderRequest {
     private LocalDate rentFrom;
     private LocalDate rentTo;
 
+    private String promotionCode;
+
     @NotEmpty
     @Valid
     private List<CreateOrderItemRequest> items;
