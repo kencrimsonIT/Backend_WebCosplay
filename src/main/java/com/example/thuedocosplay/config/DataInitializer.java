@@ -23,6 +23,7 @@ public class DataInitializer implements CommandLineRunner {
     private final UserRepository userRepository;
     private final RentalOrderRepository orderRepository;
     private final PasswordEncoder passwordEncoder;
+    private final VoucherRepository voucherRepository;
 
     @Override
     @Transactional
@@ -99,6 +100,26 @@ public class DataInitializer implements CommandLineRunner {
         productRepository.save(p1);
         productRepository.save(p2);
         productRepository.save(p3);
+
+        voucherRepository.save(Voucher.builder()
+                .seller(seller)
+                .code("COSPLAY10")
+                .title("Giam 10% don thue cosplay")
+                .discountType(VoucherDiscountType.PERCENTAGE)
+                .discountValue(new BigDecimal("10"))
+                .maxDiscountAmount(new BigDecimal("100000"))
+                .minimumOrderAmount(new BigDecimal("300000"))
+                .usageLimit(100)
+                .perUserLimit(2)
+                .usedCount(0)
+                .startsAt(LocalDateTime.now().minusDays(1))
+                .endsAt(LocalDateTime.now().plusDays(30))
+                .status(VoucherStatus.ACTIVE)
+                .audience(VoucherAudience.ALL)
+                .productScope(VoucherProductScope.SELLER_PRODUCTS)
+                .stackable(false)
+                .description("Voucher demo de test checkout va quan ly khuyen mai.")
+                .build());
 
         YearMonth current = YearMonth.now();
         LocalDateTime paidAt = current.atDay(5).atTime(10, 30);

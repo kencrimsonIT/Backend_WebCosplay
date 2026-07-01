@@ -39,11 +39,14 @@ public class CreateOrderRequest {
     @NotNull
     private BigDecimal grandTotal;
 
+    private String voucherCode;
+
+    private BigDecimal discountTotal = BigDecimal.ZERO;
+
     private LocalDate rentFrom;
     private LocalDate rentTo;
 
     private String promotionCode;
-    private BigDecimal discountTotal;
 
     @NotEmpty
     @Valid

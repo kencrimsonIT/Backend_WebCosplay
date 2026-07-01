@@ -4,7 +4,11 @@ import com.example.thuedocosplay.dto.request.CreateOrderItemRequest;
 import com.example.thuedocosplay.dto.request.CreateOrderRequest;
 import com.example.thuedocosplay.dto.request.UpdateOrderStatusRequest;
 import com.example.thuedocosplay.dto.response.OrderResponse;
-import com.example.thuedocosplay.entity.*;
+import com.example.thuedocosplay.dto.response.VoucherApplyResponse;
+import com.example.thuedocosplay.entity.OrderItem;
+import com.example.thuedocosplay.entity.Product;
+import com.example.thuedocosplay.entity.RentalOrder;
+import com.example.thuedocosplay.entity.User;
 import com.example.thuedocosplay.entity.enums.OrderStatus;
 import com.example.thuedocosplay.entity.enums.PaymentMethod;
 import com.example.thuedocosplay.exception.ResourceNotFoundException;
@@ -31,11 +35,8 @@ public class OrderService {
     private final RentalOrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
+    private final VoucherService voucherService;
     private final PromotionService promotionService;
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // TẠO ĐƠN HÀNG
-    // ─────────────────────────────────────────────────────────────────────────
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
@@ -61,20 +62,20 @@ public class OrderService {
                 .rentalTotal(request.getRentalTotal())
                 .warrantyTotal(request.getWarrantyTotal())
                 .depositTotal(request.getDepositTotal())
+                .discountTotal(BigDecimal.ZERO)
                 .grandTotal(request.getGrandTotal())
                 .promotionCode(request.getPromotionCode())
-                .discountTotal(request.getDiscountTotal() != null ? request.getDiscountTotal() : BigDecimal.ZERO)
                 .rentFrom(request.getRentFrom())
                 .rentTo(request.getRentTo())
                 .build();
 
         for (CreateOrderItemRequest itemReq : request.getItems()) {
             if (itemReq.getProductId() == null) {
-                throw new IllegalArgumentException("Dữ liệu đơn hàng thiếu productId");
+                throw new IllegalArgumentException("Du lieu don hang thieu productId");
             }
 
             Product product = productRepository.findById(itemReq.getProductId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy sản phẩm với ID: " + itemReq.getProductId()));
+                    .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay san pham voi ID: " + itemReq.getProductId()));
 
             OrderItem item = OrderItem.builder()
                     .order(order)
@@ -89,16 +90,30 @@ public class OrderService {
             order.getItems().add(item);
         }
 
+        VoucherApplyResponse voucherResult = null;
+        if (request.getVoucherCode() != null && !request.getVoucherCode().isBlank()) {
+            voucherResult = voucherService.applyVoucherToOrder(request, customer, order);
+        } else if (request.getDiscountTotal() != null && request.getDiscountTotal().compareTo(BigDecimal.ZERO) > 0) {
+            order.setDiscountTotal(request.getDiscountTotal());
+            order.setGrandTotal(order.getRentalTotal()
+                    .add(order.getWarrantyTotal())
+                    .add(order.getDepositTotal())
+                    .subtract(request.getDiscountTotal())
+                    .max(BigDecimal.ZERO));
+        }
+
         if (!online) {
             order.setPaidAt(LocalDateTime.now());
         }
 
         RentalOrder saved = orderRepository.save(order);
+        voucherService.recordVoucherUsage(voucherResult, request, customer, saved);
         if (saved.getPromotionCode() != null && !saved.getPromotionCode().isBlank()) {
             promotionService.incrementUsedCount(saved.getPromotionCode());
         }
+
         log.info(
-                "[Order] Created orderCode={} customerId={} customerEmail={} itemCount={} rentalTotal={} depositTotal={} warrantyTotal={} grandTotal={} paymentMethod={} status={}",
+                "[Order] Created orderCode={} customerId={} customerEmail={} itemCount={} rentalTotal={} depositTotal={} warrantyTotal={} discountTotal={} grandTotal={} paymentMethod={} status={}",
                 saved.getOrderCode(),
                 saved.getCustomer() != null ? saved.getCustomer().getId() : null,
                 saved.getCustomerEmail(),
@@ -106,6 +121,7 @@ public class OrderService {
                 saved.getRentalTotal(),
                 saved.getDepositTotal(),
                 saved.getWarrantyTotal(),
+                saved.getDiscountTotal(),
                 saved.getGrandTotal(),
                 saved.getPaymentMethod(),
                 saved.getStatus()
@@ -113,10 +129,6 @@ public class OrderService {
 
         return OrderMapper.toResponse(saved);
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // QUẢN LÝ ĐƠN HÀNG (Lịch sử, Chi tiết, Cập nhật, Hủy)
-    // ─────────────────────────────────────────────────────────────────────────
 
     @Transactional(readOnly = true)
     public List<OrderResponse> listOrders() {
@@ -140,14 +152,14 @@ public class OrderService {
     public OrderResponse getMyOrderDetail(String currentUserEmail, Long orderId) {
         User user = requireCurrentUser(currentUserEmail);
         RentalOrder order = orderRepository.findCustomerOrderDetail(orderId, user.getId(), user.getEmail())
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
+                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang"));
         return OrderMapper.toResponse(order);
     }
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrdersByUserEmail(String email) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
+                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay nguoi dung"));
         return orderRepository.findByCustomerOrEmail(user, email).stream().map(OrderMapper::toResponse).toList();
     }
 
@@ -166,16 +178,19 @@ public class OrderService {
         RentalOrder order = findOrder(orderId);
         boolean isOwner = userEmail.equals(order.getCustomerEmail())
                 || (order.getCustomer() != null && userEmail.equals(order.getCustomer().getEmail()));
-        
-        if (!isOwner) throw new IllegalStateException("Bạn không có quyền hủy đơn hàng này");
+
+        if (!isOwner) {
+            throw new IllegalStateException("Ban khong co quyen huy don hang nay");
+        }
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT && order.getStatus() != OrderStatus.PENDING_CONFIRM) {
-            throw new IllegalStateException("Không thể hủy đơn hàng ở trạng thái: " + order.getStatus());
+            throw new IllegalStateException("Khong the huy don hang o trang thai: " + order.getStatus());
         }
 
         order.setStatus(OrderStatus.CANCELLED);
         log.info("[Order] Cancelled orderId={} reason={}", orderId, reason);
         return OrderMapper.toResponse(orderRepository.save(order));
     }
+
     @Transactional
     public void markPaid(RentalOrder order) {
         order.setStatus(OrderStatus.PENDING_CONFIRM);
@@ -185,26 +200,30 @@ public class OrderService {
                 order.getId(), order.getOrderCode(), order.getGrandTotal(), order.getPaidAt());
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // CÁC HÀM HỖ TRỢ
-    // ─────────────────────────────────────────────────────────────────────────
-
     public RentalOrder findOrder(Long id) {
-        return orderRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
+        return orderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang"));
     }
 
     private User requireCurrentUser(String currentUserEmail) {
-        if (!hasCurrentUserEmail(currentUserEmail)) throw new AuthenticationCredentialsNotFoundException("Vui lòng đăng nhập");
-        return userRepository.findByEmail(currentUserEmail).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản"));
+        if (!hasCurrentUserEmail(currentUserEmail)) {
+            throw new AuthenticationCredentialsNotFoundException("Vui long dang nhap");
+        }
+        return userRepository.findByEmail(currentUserEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay tai khoan"));
     }
 
     private User resolveOrderCustomer(String currentUserEmail, String requestEmail) {
-        if (hasCurrentUserEmail(currentUserEmail)) return userRepository.findByEmail(currentUserEmail).orElse(null);
-        return (requestEmail != null && !requestEmail.isBlank()) ? userRepository.findByEmail(requestEmail).orElse(null) : null;
+        if (hasCurrentUserEmail(currentUserEmail)) {
+            return userRepository.findByEmail(currentUserEmail).orElse(null);
+        }
+        return requestEmail != null && !requestEmail.isBlank()
+                ? userRepository.findByEmail(requestEmail).orElse(null)
+                : null;
     }
 
     private String resolveCustomerEmail(User customer, String requestEmail) {
-        return (customer != null) ? customer.getEmail() : requestEmail;
+        return customer != null ? customer.getEmail() : requestEmail;
     }
 
     private boolean hasCurrentUserEmail(String currentUserEmail) {
@@ -213,7 +232,7 @@ public class OrderService {
 
     private void validateDateRange(LocalDate fromDate, LocalDate toDate) {
         if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
-            throw new IllegalArgumentException("Ngày bắt đầu không được sau ngày kết thúc");
+            throw new IllegalArgumentException("Ngay bat dau khong duoc sau ngay ket thuc");
         }
     }
 

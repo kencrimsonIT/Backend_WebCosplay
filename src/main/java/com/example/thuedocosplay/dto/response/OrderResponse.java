@@ -25,6 +25,10 @@ public class OrderResponse {
     private BigDecimal rentalTotal;
     private BigDecimal warrantyTotal;
     private BigDecimal depositTotal;
+    private BigDecimal discountTotal;
+    private String voucherCode;
+    private String voucherTitle;
+    private String promotionCode;
     private BigDecimal grandTotal;
     private LocalDate rentFrom;
     private LocalDate rentTo;
