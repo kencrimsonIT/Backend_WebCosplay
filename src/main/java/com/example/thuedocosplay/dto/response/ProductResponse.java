@@ -11,26 +11,35 @@ import java.util.List;
 @Data
 @Builder
 public class ProductResponse {
+    // Thông tin cơ bản
     private Long id;
     private String name;
-    private String categoryName;
+    
+    // Phân loại & Người bán
     private Long categoryId;
+    private String categoryName;
     private Long sellerId;
     private String sellerName;
+    
+    // Thông tin chi tiết & Giá
     private String description;
     private BigDecimal pricePerDay;
     private BigDecimal deposit;
     private String imageUrl;
+    
+    // Trạng thái & Quản lý
     private Boolean visible;
     private Integer quantity;
     private ProductInventoryStatus inventoryStatus;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     
-    // UI specific fields from products.js
-    private Double rating;
-    private Integer reviewCount;
-    private List<ProductReviewResponse> reviews;
+    // Đánh giá (Kết hợp logic cả 2 nhánh)
+    private Double rating;      // Từ nhánh của bạn
+    private Integer reviewCount;      // Từ nhánh của bạn
+    private List<ProductReviewResponse> reviews; // Từ nhánh main
+    
+    // Thông tin bổ sung
     private List<String> tags;
     private List<String> includes;
 }

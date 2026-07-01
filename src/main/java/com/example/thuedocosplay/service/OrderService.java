@@ -4,10 +4,7 @@ import com.example.thuedocosplay.dto.request.CreateOrderItemRequest;
 import com.example.thuedocosplay.dto.request.CreateOrderRequest;
 import com.example.thuedocosplay.dto.request.UpdateOrderStatusRequest;
 import com.example.thuedocosplay.dto.response.OrderResponse;
-import com.example.thuedocosplay.entity.OrderItem;
-import com.example.thuedocosplay.entity.Product;
-import com.example.thuedocosplay.entity.RentalOrder;
-import com.example.thuedocosplay.entity.User;
+import com.example.thuedocosplay.entity.*;
 import com.example.thuedocosplay.entity.enums.OrderStatus;
 import com.example.thuedocosplay.entity.enums.PaymentMethod;
 import com.example.thuedocosplay.exception.ResourceNotFoundException;
@@ -35,6 +32,10 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final PromotionService promotionService;
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // TẠO ĐƠN HÀNG
+    // ─────────────────────────────────────────────────────────────────────────
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
@@ -69,11 +70,11 @@ public class OrderService {
 
         for (CreateOrderItemRequest itemReq : request.getItems()) {
             if (itemReq.getProductId() == null) {
-                throw new IllegalArgumentException("Du lieu don hang thieu productId");
+                throw new IllegalArgumentException("Dữ liệu đơn hàng thiếu productId");
             }
 
             Product product = productRepository.findById(itemReq.getProductId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay san pham voi ID: " + itemReq.getProductId()));
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy sản phẩm với ID: " + itemReq.getProductId()));
 
             OrderItem item = OrderItem.builder()
                     .order(order)
@@ -113,6 +114,10 @@ public class OrderService {
         return OrderMapper.toResponse(saved);
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // QUẢN LÝ ĐƠN HÀNG (Lịch sử, Chi tiết, Cập nhật, Hủy)
+    // ─────────────────────────────────────────────────────────────────────────
+
     @Transactional(readOnly = true)
     public List<OrderResponse> listOrders() {
         return OrderMapper.toResponses(orderRepository.findAllByOrderByCreatedAtDesc());
@@ -127,30 +132,7 @@ public class OrderService {
     public List<OrderResponse> getMyOrderHistory(String currentUserEmail, OrderStatus status, LocalDate fromDate, LocalDate toDate) {
         User user = requireCurrentUser(currentUserEmail);
         validateDateRange(fromDate, toDate);
-
-        List<RentalOrder> orders = orderRepository.findCustomerHistory(
-                user.getId(),
-                user.getEmail(),
-                status,
-                fromDate,
-                toDate
-        );
-        BigDecimal totalGrand = orders.stream()
-                .map(RentalOrder::getGrandTotal)
-                .filter(value -> value != null)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        log.info(
-                "[OrderHistory] Listed customerId={} email={} status={} fromDate={} toDate={} orderCount={} totalGrand={}",
-                user.getId(),
-                user.getEmail(),
-                status,
-                fromDate,
-                toDate,
-                orders.size(),
-                totalGrand
-        );
-
+        List<RentalOrder> orders = orderRepository.findCustomerHistory(user.getId(), user.getEmail(), status, fromDate, toDate);
         return OrderMapper.toResponses(orders);
     }
 
@@ -158,36 +140,42 @@ public class OrderService {
     public OrderResponse getMyOrderDetail(String currentUserEmail, Long orderId) {
         User user = requireCurrentUser(currentUserEmail);
         RentalOrder order = orderRepository.findCustomerOrderDetail(orderId, user.getId(), user.getEmail())
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang trong lich su mua cua ban"));
-
-        log.info(
-                "[OrderHistory] Viewed detail customerId={} email={} orderId={} orderCode={} grandTotal={} status={} itemCount={}",
-                user.getId(),
-                user.getEmail(),
-                order.getId(),
-                order.getOrderCode(),
-                order.getGrandTotal(),
-                order.getStatus(),
-                order.getItems().size()
-        );
-
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
         return OrderMapper.toResponse(order);
+    }
+
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getOrdersByUserEmail(String email) {
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
+        return orderRepository.findByCustomerOrEmail(user, email).stream().map(OrderMapper::toResponse).toList();
     }
 
     @Transactional
     public OrderResponse updateStatus(Long id, UpdateOrderStatusRequest request) {
         RentalOrder order = findOrder(id);
-        OrderStatus oldStatus = order.getStatus();
         order.setStatus(request.getStatus());
         if (request.getStatus() == OrderStatus.COMPLETED && order.getPaidAt() == null) {
             order.setPaidAt(LocalDateTime.now());
         }
-        RentalOrder saved = orderRepository.save(order);
-        log.info("[Order] Updated status orderId={} orderCode={} oldStatus={} newStatus={}",
-                saved.getId(), saved.getOrderCode(), oldStatus, saved.getStatus());
-        return OrderMapper.toResponse(saved);
+        return OrderMapper.toResponse(orderRepository.save(order));
     }
 
+    @Transactional
+    public OrderResponse cancelOrderByUser(Long orderId, String userEmail, String reason) {
+        RentalOrder order = findOrder(orderId);
+        boolean isOwner = userEmail.equals(order.getCustomerEmail())
+                || (order.getCustomer() != null && userEmail.equals(order.getCustomer().getEmail()));
+        
+        if (!isOwner) throw new IllegalStateException("Bạn không có quyền hủy đơn hàng này");
+        if (order.getStatus() != OrderStatus.PENDING_PAYMENT && order.getStatus() != OrderStatus.PENDING_CONFIRM) {
+            throw new IllegalStateException("Không thể hủy đơn hàng ở trạng thái: " + order.getStatus());
+        }
+
+        order.setStatus(OrderStatus.CANCELLED);
+        log.info("[Order] Cancelled orderId={} reason={}", orderId, reason);
+        return OrderMapper.toResponse(orderRepository.save(order));
+    }
     @Transactional
     public void markPaid(RentalOrder order) {
         order.setStatus(OrderStatus.PENDING_CONFIRM);
@@ -197,52 +185,39 @@ public class OrderService {
                 order.getId(), order.getOrderCode(), order.getGrandTotal(), order.getPaidAt());
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // CÁC HÀM HỖ TRỢ
+    // ─────────────────────────────────────────────────────────────────────────
+
     public RentalOrder findOrder(Long id) {
-        return orderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang"));
+        return orderRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
     }
 
     private User requireCurrentUser(String currentUserEmail) {
-        if (!hasCurrentUserEmail(currentUserEmail)) {
-            log.warn("[OrderHistory] Rejected unauthenticated request");
-            throw new AuthenticationCredentialsNotFoundException("Vui long dang nhap de xem lich su mua");
-        }
-        return userRepository.findByEmail(currentUserEmail)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay tai khoan dang dang nhap"));
+        if (!hasCurrentUserEmail(currentUserEmail)) throw new AuthenticationCredentialsNotFoundException("Vui lòng đăng nhập");
+        return userRepository.findByEmail(currentUserEmail).orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản"));
     }
 
     private User resolveOrderCustomer(String currentUserEmail, String requestEmail) {
-        if (hasCurrentUserEmail(currentUserEmail)) {
-            return userRepository.findByEmail(currentUserEmail).orElse(null);
-        }
-        if (requestEmail != null && !requestEmail.isBlank()) {
-            return userRepository.findByEmail(requestEmail).orElse(null);
-        }
-        return null;
+        if (hasCurrentUserEmail(currentUserEmail)) return userRepository.findByEmail(currentUserEmail).orElse(null);
+        return (requestEmail != null && !requestEmail.isBlank()) ? userRepository.findByEmail(requestEmail).orElse(null) : null;
     }
 
     private String resolveCustomerEmail(User customer, String requestEmail) {
-        if (customer != null) {
-            return customer.getEmail();
-        }
-        return requestEmail;
+        return (customer != null) ? customer.getEmail() : requestEmail;
     }
 
     private boolean hasCurrentUserEmail(String currentUserEmail) {
-        return currentUserEmail != null
-                && !currentUserEmail.isBlank()
-                && !"anonymousUser".equals(currentUserEmail);
+        return currentUserEmail != null && !currentUserEmail.isBlank() && !"anonymousUser".equals(currentUserEmail);
     }
 
     private void validateDateRange(LocalDate fromDate, LocalDate toDate) {
         if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
-            throw new IllegalArgumentException("Ngay bat dau khong duoc sau ngay ket thuc");
+            throw new IllegalArgumentException("Ngày bắt đầu không được sau ngày kết thúc");
         }
     }
 
     private String generateOrderCode() {
-        int year = Year.now().getValue();
-        long randomSuffix = System.currentTimeMillis() % 1000000;
-        return "ORD-" + year + "-" + String.format("%06d", randomSuffix);
+        return "ORD-" + Year.now().getValue() + "-" + String.format("%06d", System.currentTimeMillis() % 1000000);
     }
 }

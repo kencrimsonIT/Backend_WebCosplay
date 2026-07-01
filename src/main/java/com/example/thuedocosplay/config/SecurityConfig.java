@@ -59,9 +59,11 @@ public class SecurityConfig {
             "/api/payments/momo/return",
             "/api/payments/momo/ipn",
 
-            "/api/orders/**",
-            "/api/payments/**",
-            "/api/products/**"
+            "/api/products/**",
+
+            "/api/reviews/product/**",
+
+            "/api/insurance/plans"
     };
 
     @Bean
@@ -71,6 +73,8 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(WHITE_LIST).permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/reviews").authenticated()
+                        .requestMatchers("/api/orders/my", "/api/orders/*/cancel").authenticated()
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session
@@ -90,6 +94,7 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(List.of("http://localhost:3000"));
+        // Đã gộp và xử lý xung đột PATCH tại đây
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Requested-With", "Origin"));
         configuration.setAllowCredentials(true);
