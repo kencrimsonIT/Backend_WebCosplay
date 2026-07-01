@@ -63,6 +63,16 @@ public class RentalOrder {
     @Column(name = "deposit_total", nullable = false, precision = 15, scale = 0)
     private BigDecimal depositTotal;
 
+    @Column(name = "discount_total", nullable = false, precision = 15, scale = 0)
+    @Builder.Default
+    private BigDecimal discountTotal = BigDecimal.ZERO;
+
+    @Column(name = "voucher_code", length = 40)
+    private String voucherCode;
+
+    @Column(name = "voucher_title")
+    private String voucherTitle;
+
     @Column(name = "grand_total", nullable = false, precision = 15, scale = 0)
     private BigDecimal grandTotal;
 

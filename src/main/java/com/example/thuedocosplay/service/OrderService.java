@@ -4,6 +4,7 @@ import com.example.thuedocosplay.dto.request.CreateOrderItemRequest;
 import com.example.thuedocosplay.dto.request.CreateOrderRequest;
 import com.example.thuedocosplay.dto.request.UpdateOrderStatusRequest;
 import com.example.thuedocosplay.dto.response.OrderResponse;
+import com.example.thuedocosplay.dto.response.VoucherApplyResponse;
 import com.example.thuedocosplay.entity.OrderItem;
 import com.example.thuedocosplay.entity.Product;
 import com.example.thuedocosplay.entity.RentalOrder;
@@ -34,6 +35,7 @@ public class OrderService {
     private final RentalOrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
+    private final VoucherService voucherService;
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
@@ -59,6 +61,7 @@ public class OrderService {
                 .rentalTotal(request.getRentalTotal())
                 .warrantyTotal(request.getWarrantyTotal())
                 .depositTotal(request.getDepositTotal())
+                .discountTotal(BigDecimal.ZERO)
                 .grandTotal(request.getGrandTotal())
                 .rentFrom(request.getRentFrom())
                 .rentTo(request.getRentTo())
@@ -85,13 +88,16 @@ public class OrderService {
             order.getItems().add(item);
         }
 
+        VoucherApplyResponse voucherResult = voucherService.applyVoucherToOrder(request, customer, order);
+
         if (!online) {
             order.setPaidAt(LocalDateTime.now());
         }
 
         RentalOrder saved = orderRepository.save(order);
+        voucherService.recordVoucherUsage(voucherResult, request, customer, saved);
         log.info(
-                "[Order] Created orderCode={} customerId={} customerEmail={} itemCount={} rentalTotal={} depositTotal={} warrantyTotal={} grandTotal={} paymentMethod={} status={}",
+                "[Order] Created orderCode={} customerId={} customerEmail={} itemCount={} rentalTotal={} depositTotal={} warrantyTotal={} discountTotal={} grandTotal={} paymentMethod={} status={}",
                 saved.getOrderCode(),
                 saved.getCustomer() != null ? saved.getCustomer().getId() : null,
                 saved.getCustomerEmail(),
@@ -99,6 +105,7 @@ public class OrderService {
                 saved.getRentalTotal(),
                 saved.getDepositTotal(),
                 saved.getWarrantyTotal(),
+                saved.getDiscountTotal(),
                 saved.getGrandTotal(),
                 saved.getPaymentMethod(),
                 saved.getStatus()
