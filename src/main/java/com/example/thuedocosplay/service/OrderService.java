@@ -31,6 +31,7 @@ public class OrderService {
     private final RentalOrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
+    private final PromotionService promotionService;
 
     // ─────────────────────────────────────────────────────────────────────────
     // TẠO ĐƠN HÀNG
@@ -61,6 +62,8 @@ public class OrderService {
                 .warrantyTotal(request.getWarrantyTotal())
                 .depositTotal(request.getDepositTotal())
                 .grandTotal(request.getGrandTotal())
+                .promotionCode(request.getPromotionCode())
+                .discountTotal(request.getDiscountTotal() != null ? request.getDiscountTotal() : BigDecimal.ZERO)
                 .rentFrom(request.getRentFrom())
                 .rentTo(request.getRentTo())
                 .build();
@@ -91,7 +94,22 @@ public class OrderService {
         }
 
         RentalOrder saved = orderRepository.save(order);
-        log.info("[Order] Created orderCode={} customerEmail={} status={}", saved.getOrderCode(), saved.getCustomerEmail(), saved.getStatus());
+        if (saved.getPromotionCode() != null && !saved.getPromotionCode().isBlank()) {
+            promotionService.incrementUsedCount(saved.getPromotionCode());
+        }
+        log.info(
+                "[Order] Created orderCode={} customerId={} customerEmail={} itemCount={} rentalTotal={} depositTotal={} warrantyTotal={} grandTotal={} paymentMethod={} status={}",
+                saved.getOrderCode(),
+                saved.getCustomer() != null ? saved.getCustomer().getId() : null,
+                saved.getCustomerEmail(),
+                saved.getItems().size(),
+                saved.getRentalTotal(),
+                saved.getDepositTotal(),
+                saved.getWarrantyTotal(),
+                saved.getGrandTotal(),
+                saved.getPaymentMethod(),
+                saved.getStatus()
+        );
 
         return OrderMapper.toResponse(saved);
     }
