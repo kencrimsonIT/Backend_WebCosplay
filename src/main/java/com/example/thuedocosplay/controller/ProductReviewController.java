@@ -11,92 +11,95 @@ import com.example.thuedocosplay.entity.enums.ReviewStatus;
 import com.example.thuedocosplay.service.ProductReviewService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
-import java.security.Principal;
 import java.util.List;
 
 @RestController
+@RequestMapping("/api/reviews") // Đặt đường dẫn gốc chung tại đây
 @RequiredArgsConstructor
 public class ProductReviewController {
 
     private final ProductReviewService reviewService;
 
-    @GetMapping("/api/products/{productId}/reviews")
+    // Lấy đánh giá sản phẩm (Public)
+    @GetMapping("/product/{productId}")
     public ApiResponse<List<ProductReviewResponse>> listProductReviews(@PathVariable Long productId) {
         return ApiResponse.ok(reviewService.listVisibleProductReviews(productId));
     }
 
-    @GetMapping("/api/products/{productId}/reviews/summary")
+    @GetMapping("/product/{productId}/summary")
     public ApiResponse<ReviewSummaryResponse> productReviewSummary(@PathVariable Long productId) {
         return ApiResponse.ok(reviewService.productSummary(productId));
     }
 
-    @PostMapping("/api/reviews")
+    // Gửi đánh giá (Cần đăng nhập)
+    @PostMapping
     public ApiResponse<ProductReviewResponse> createReview(
-            Principal principal,
+            @AuthenticationPrincipal UserDetails userDetails,
             @Valid @RequestBody CreateProductReviewRequest request
     ) {
-        return ApiResponse.ok("Da gui danh gia", reviewService.createReview(currentEmail(principal), request));
+        return ApiResponse.ok("Đã gửi đánh giá", reviewService.createReview(userDetails.getUsername(), request));
     }
 
-    @GetMapping("/api/reviews/my")
-    public ApiResponse<List<ProductReviewResponse>> myReviews(Principal principal) {
-        return ApiResponse.ok(reviewService.listMyReviews(currentEmail(principal)));
+    // Quản lý đánh giá cá nhân
+    @GetMapping("/my")
+    public ApiResponse<List<ProductReviewResponse>> myReviews(@AuthenticationPrincipal UserDetails userDetails) {
+        return ApiResponse.ok(reviewService.listMyReviews(userDetails.getUsername()));
     }
 
-    @PutMapping("/api/reviews/{id}")
+    @PutMapping("/{id}")
     public ApiResponse<ProductReviewResponse> updateMyReview(
-            Principal principal,
+            @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long id,
             @Valid @RequestBody UpdateProductReviewRequest request
     ) {
-        return ApiResponse.ok("Da cap nhat danh gia", reviewService.updateMyReview(currentEmail(principal), id, request));
+        return ApiResponse.ok("Đã cập nhật đánh giá", reviewService.updateMyReview(userDetails.getUsername(), id, request));
     }
 
-    @DeleteMapping("/api/reviews/{id}")
-    public ApiResponse<Void> deleteMyReview(Principal principal, @PathVariable Long id) {
-        reviewService.deleteMyReview(currentEmail(principal), id);
-        return ApiResponse.ok("Da xoa danh gia", null);
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> deleteMyReview(@AuthenticationPrincipal UserDetails userDetails, @PathVariable Long id) {
+        reviewService.deleteMyReview(userDetails.getUsername(), id);
+        return ApiResponse.ok("Đã xóa đánh giá", null);
     }
 
-    @PostMapping("/api/reviews/{id}/like")
-    public ApiResponse<ProductReviewResponse> likeReview(Principal principal, @PathVariable Long id) {
-        return ApiResponse.ok("Da thich danh gia", reviewService.likeReview(currentEmail(principal), id));
+    // Like/Unlike
+    @PostMapping("/{id}/like")
+    public ApiResponse<ProductReviewResponse> likeReview(@AuthenticationPrincipal UserDetails userDetails, @PathVariable Long id) {
+        return ApiResponse.ok("Đã thích đánh giá", reviewService.likeReview(userDetails.getUsername(), id));
     }
 
-    @DeleteMapping("/api/reviews/{id}/like")
-    public ApiResponse<ProductReviewResponse> unlikeReview(Principal principal, @PathVariable Long id) {
-        return ApiResponse.ok("Da bo thich danh gia", reviewService.unlikeReview(currentEmail(principal), id));
+    @DeleteMapping("/{id}/like")
+    public ApiResponse<ProductReviewResponse> unlikeReview(@AuthenticationPrincipal UserDetails userDetails, @PathVariable Long id) {
+        return ApiResponse.ok("Đã bỏ thích đánh giá", reviewService.unlikeReview(userDetails.getUsername(), id));
     }
 
-    @GetMapping("/api/seller/reviews")
+    // Quản lý dành cho người bán (Seller)
+    @GetMapping("/seller")
     public ApiResponse<SellerReviewDashboardResponse> sellerReviews(
-            Principal principal,
+            @AuthenticationPrincipal UserDetails userDetails,
             @RequestParam(required = false) ReviewStatus status
     ) {
-        return ApiResponse.ok(reviewService.listSellerReviews(currentEmail(principal), status));
+        return ApiResponse.ok(reviewService.listSellerReviews(userDetails.getUsername(), status));
     }
 
-    @PostMapping("/api/seller/reviews/{id}/response")
+    @PostMapping("/seller/{id}/response")
     public ApiResponse<ProductReviewResponse> respondAsSeller(
-            Principal principal,
+            @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long id,
             @Valid @RequestBody SellerReviewResponseRequest request
     ) {
-        return ApiResponse.ok("Da phan hoi danh gia", reviewService.respondAsSeller(currentEmail(principal), id, request));
+        return ApiResponse.ok("Đã phản hồi đánh giá", reviewService.respondAsSeller(userDetails.getUsername(), id, request));
     }
 
-    @PatchMapping("/api/seller/reviews/{id}/visibility")
+    @PatchMapping("/seller/{id}/visibility")
     public ApiResponse<ProductReviewResponse> setReviewVisibility(
-            Principal principal,
+            @AuthenticationPrincipal UserDetails userDetails,
             @PathVariable Long id,
             @RequestParam ReviewStatus status
     ) {
-        return ApiResponse.ok("Da cap nhat trang thai danh gia", reviewService.setVisibilityAsSeller(currentEmail(principal), id, status));
-    }
-
-    private String currentEmail(Principal principal) {
-        return principal != null ? principal.getName() : null;
+        return ApiResponse.ok("Đã cập nhật trạng thái đánh giá", reviewService.setVisibilityAsSeller(userDetails.getUsername(), id, status));
     }
 }

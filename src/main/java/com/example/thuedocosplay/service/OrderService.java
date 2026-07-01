@@ -158,6 +158,14 @@ public class OrderService {
         log.info("[Order] Cancelled orderId={} reason={}", orderId, reason);
         return OrderMapper.toResponse(orderRepository.save(order));
     }
+    @Transactional
+    public void markPaid(RentalOrder order) {
+        order.setStatus(OrderStatus.PENDING_CONFIRM);
+        order.setPaidAt(LocalDateTime.now());
+        orderRepository.save(order);
+        log.info("[Order] Marked paid orderId={} orderCode={} grandTotal={} paidAt={}",
+                order.getId(), order.getOrderCode(), order.getGrandTotal(), order.getPaidAt());
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // CÁC HÀM HỖ TRỢ

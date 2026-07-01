@@ -35,8 +35,8 @@ public class ProductResponse {
     private LocalDateTime updatedAt;
     
     // Đánh giá (Kết hợp logic cả 2 nhánh)
-    private Double avgRating;      // Từ nhánh của bạn
-    private Long reviewCount;      // Từ nhánh của bạn
+    private Double rating;      // Từ nhánh của bạn
+    private Integer reviewCount;      // Từ nhánh của bạn
     private List<ProductReviewResponse> reviews; // Từ nhánh main
     
     // Thông tin bổ sung
