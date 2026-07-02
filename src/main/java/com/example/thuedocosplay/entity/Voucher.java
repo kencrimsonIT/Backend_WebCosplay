@@ -90,6 +90,10 @@ public class Voucher {
     @Column(length = 1000)
     private String description;
 
+    @Column(name = "deleted")
+    @Builder.Default
+    private Boolean deleted = false;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

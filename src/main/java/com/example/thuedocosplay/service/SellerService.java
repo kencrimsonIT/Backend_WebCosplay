@@ -57,6 +57,7 @@ public class SellerService {
     private final ProductRepository productRepository;
     private final RentalOrderRepository orderRepository;
     private final CategoryService categoryService;
+    private final VoucherService voucherService;
 
     @Transactional(readOnly = true)
     public SellerDashboardResponse dashboard(String currentUserEmail) {
@@ -246,6 +247,7 @@ public class SellerService {
         if (request.getStatus() == OrderStatus.COMPLETED && order.getPaidAt() == null) {
             order.setPaidAt(LocalDateTime.now());
         }
+        syncVoucherUsageForStatus(order, oldStatus, request.getStatus());
         RentalOrder saved = orderRepository.save(order);
         log.info("[SellerOrder] Updated status sellerId={} orderId={} orderCode={} oldStatus={} newStatus={}",
                 seller.getId(), saved.getId(), saved.getOrderCode(), oldStatus, saved.getStatus());
@@ -328,6 +330,15 @@ public class SellerService {
     private void validateSellerStatusUpdate(OrderStatus status) {
         if (status == OrderStatus.PENDING_PAYMENT) {
             throw new IllegalArgumentException("Nguoi ban khong duoc chuyen don ve trang thai cho thanh toan");
+        }
+    }
+
+    private void syncVoucherUsageForStatus(RentalOrder order, OrderStatus oldStatus, OrderStatus newStatus) {
+        if (newStatus == OrderStatus.CONFIRMED || newStatus == OrderStatus.RENTING || newStatus == OrderStatus.COMPLETED) {
+            voucherService.confirmVoucherUsage(order);
+        } else if (newStatus == OrderStatus.CANCELLED
+                && (oldStatus == OrderStatus.PENDING_PAYMENT || oldStatus == OrderStatus.PENDING_CONFIRM)) {
+            voucherService.releasePendingVoucherUsage(order);
         }
     }
 

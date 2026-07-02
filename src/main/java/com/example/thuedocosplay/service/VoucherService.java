@@ -44,7 +44,7 @@ public class VoucherService {
     @Transactional(readOnly = true)
     public List<VoucherResponse> listSellerVouchers(String currentUserEmail) {
         User seller = requireSeller(currentUserEmail);
-        return voucherRepository.findAllBySeller_IdOrderByCreatedAtDesc(seller.getId())
+        return voucherRepository.findVisibleBySellerId(seller.getId())
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -57,6 +57,7 @@ public class VoucherService {
         if (voucherRepository.existsByCodeIgnoreCase(code)) {
             throw new IllegalArgumentException("Ma voucher da ton tai");
         }
+        normalizeVoucherDefaults(request);
         validateVoucherRequest(request);
 
         Voucher voucher = Voucher.builder()
@@ -73,9 +74,10 @@ public class VoucherService {
                 .endsAt(request.getEndsAt())
                 .status(request.getStatus() == null ? VoucherStatus.ACTIVE : request.getStatus())
                 .audience(request.getAudience())
-                .productScope(request.getProductScope() == null ? VoucherProductScope.SELLER_PRODUCTS : request.getProductScope())
+                .productScope(VoucherProductScope.SELLER_PRODUCTS)
                 .stackable(Boolean.TRUE.equals(request.getStackable()))
                 .description(request.getDescription())
+                .deleted(false)
                 .build();
 
         Voucher saved = voucherRepository.save(voucher);
@@ -91,6 +93,7 @@ public class VoucherService {
         if (!voucher.getCode().equalsIgnoreCase(code) && voucherRepository.existsByCodeIgnoreCase(code)) {
             throw new IllegalArgumentException("Ma voucher da ton tai");
         }
+        normalizeVoucherDefaults(request);
         validateVoucherRequest(request);
 
         voucher.setCode(code);
@@ -105,13 +108,67 @@ public class VoucherService {
         voucher.setEndsAt(request.getEndsAt());
         voucher.setStatus(request.getStatus() == null ? voucher.getStatus() : request.getStatus());
         voucher.setAudience(request.getAudience());
-        voucher.setProductScope(request.getProductScope() == null ? VoucherProductScope.SELLER_PRODUCTS : request.getProductScope());
+        voucher.setProductScope(VoucherProductScope.SELLER_PRODUCTS);
         voucher.setStackable(Boolean.TRUE.equals(request.getStackable()));
         voucher.setDescription(request.getDescription());
 
         Voucher saved = voucherRepository.save(voucher);
         log.info("[Voucher] seller={} updated code={}", seller.getEmail(), saved.getCode());
         return toResponse(saved);
+    }
+
+    @Transactional
+    public VoucherResponse duplicateSellerVoucher(String currentUserEmail, Long voucherId) {
+        User seller = requireSeller(currentUserEmail);
+        Voucher source = sellerVoucher(voucherId, seller.getId());
+        String newCode = uniqueCopyCode(source.getCode());
+
+        Voucher copy = Voucher.builder()
+                .seller(seller)
+                .code(newCode)
+                .title(source.getTitle() + " (copy)")
+                .discountType(source.getDiscountType())
+                .discountValue(source.getDiscountValue())
+                .maxDiscountAmount(source.getMaxDiscountAmount())
+                .minimumOrderAmount(nullToZero(source.getMinimumOrderAmount()))
+                .usageLimit(source.getUsageLimit())
+                .perUserLimit(source.getPerUserLimit())
+                .usedCount(0)
+                .startsAt(source.getStartsAt())
+                .endsAt(source.getEndsAt())
+                .status(VoucherStatus.DRAFT)
+                .audience(source.getAudience())
+                .productScope(source.getProductScope())
+                .stackable(Boolean.TRUE.equals(source.getStackable()))
+                .description(source.getDescription())
+                .deleted(false)
+                .build();
+
+        Voucher saved = voucherRepository.save(copy);
+        log.info("[Voucher] seller={} duplicated source={} copy={}", seller.getEmail(), source.getCode(), saved.getCode());
+        return toResponse(saved);
+    }
+
+    @Transactional
+    public void deleteSellerVoucher(String currentUserEmail, Long voucherId) {
+        User seller = requireSeller(currentUserEmail);
+        Voucher voucher = sellerVoucher(voucherId, seller.getId());
+        voucher.setDeleted(true);
+        voucher.setStatus(VoucherStatus.EXPIRED);
+        voucher.setCode(archivedCode(voucher));
+        voucherRepository.save(voucher);
+        log.info("[Voucher] seller={} deleted voucherId={}", seller.getEmail(), voucherId);
+    }
+
+    @Transactional(readOnly = true)
+    public VoucherSummary getSellerSummary(String currentUserEmail) {
+        User seller = requireSeller(currentUserEmail);
+        LocalDateTime now = LocalDateTime.now();
+        return new VoucherSummary(
+                voucherRepository.countActiveBySeller(seller.getId()),
+                voucherRepository.sumUsedCountBySeller(seller.getId()),
+                voucherRepository.countExpiringSoonBySeller(seller.getId(), now, now.plusDays(3))
+        );
     }
 
     @Transactional
@@ -171,16 +228,55 @@ public class VoucherService {
         }
         Voucher voucher = voucherRepository.findById(result.getVoucherId())
                 .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay voucher"));
-        voucher.setUsedCount((voucher.getUsedCount() == null ? 0 : voucher.getUsedCount()) + 1);
         usageRepository.save(VoucherUsage.builder()
                 .voucher(voucher)
                 .order(order)
                 .customer(customer)
                 .customerEmail(customer != null ? customer.getEmail() : request.getCustomerEmail())
                 .discountAmount(result.getDiscountAmount())
+                .counted(false)
                 .build());
-        voucherRepository.save(voucher);
-        log.info("[Voucher] applied code={} order={} discount={}", voucher.getCode(), order.getOrderCode(), result.getDiscountAmount());
+        log.info("[Voucher] reserved code={} order={} discount={}", voucher.getCode(), order.getOrderCode(), result.getDiscountAmount());
+    }
+
+    @Transactional
+    public void confirmVoucherUsage(RentalOrder order) {
+        if (order == null || order.getId() == null) {
+            return;
+        }
+        usageRepository.findByOrder_Id(order.getId()).ifPresent(usage -> {
+            if (Boolean.TRUE.equals(usage.getCounted())) {
+                return;
+            }
+            Voucher voucher = usage.getVoucher();
+            voucher.setUsedCount((voucher.getUsedCount() == null ? 0 : voucher.getUsedCount()) + 1);
+            usage.setCounted(true);
+            voucherRepository.save(voucher);
+            usageRepository.save(usage);
+            log.info("[Voucher] confirmed code={} order={} usedCount={}", voucher.getCode(), order.getOrderCode(), voucher.getUsedCount());
+        });
+    }
+
+    @Transactional
+    public void releasePendingVoucherUsage(RentalOrder order) {
+        if (order == null || order.getId() == null) {
+            return;
+        }
+        usageRepository.findByOrder_Id(order.getId()).ifPresent(usage -> {
+            if (Boolean.TRUE.equals(usage.getCounted())) {
+                return;
+            }
+            String code = usage.getVoucher() != null ? usage.getVoucher().getCode() : order.getVoucherCode();
+            usageRepository.delete(usage);
+            order.setVoucherCode(null);
+            order.setVoucherTitle(null);
+            order.setDiscountTotal(BigDecimal.ZERO);
+            order.setGrandTotal(order.getRentalTotal()
+                    .add(order.getWarrantyTotal())
+                    .add(order.getDepositTotal())
+                    .max(BigDecimal.ZERO));
+            log.info("[Voucher] released pending code={} order={}", code, order.getOrderCode());
+        });
     }
 
     private VoucherApplyResponse calculateVoucher(
@@ -222,13 +318,16 @@ public class VoucherService {
 
     private void validateUsable(Voucher voucher, String customerEmail) {
         LocalDateTime now = LocalDateTime.now();
+        if (Boolean.TRUE.equals(voucher.getDeleted())) {
+            throw new IllegalArgumentException("Voucher da bi xoa");
+        }
         if (voucher.getStatus() != VoucherStatus.ACTIVE) {
             throw new IllegalArgumentException("Voucher khong dang hoat dong");
         }
-        if (now.isBefore(voucher.getStartsAt())) {
+        if (voucher.getStartsAt() != null && now.isBefore(voucher.getStartsAt())) {
             throw new IllegalArgumentException("Voucher chua den thoi gian su dung");
         }
-        if (now.isAfter(voucher.getEndsAt())) {
+        if (voucher.getEndsAt() != null && now.isAfter(voucher.getEndsAt())) {
             voucher.setStatus(VoucherStatus.EXPIRED);
             throw new IllegalArgumentException("Voucher da het han");
         }
@@ -249,7 +348,8 @@ public class VoucherService {
             if (product == null) continue;
             boolean eligible = voucher.getProductScope() == VoucherProductScope.ALL_PRODUCTS
                     || (product.getSeller() != null && voucher.getSeller() != null
-                    && product.getSeller().getId().equals(voucher.getSeller().getId()));
+                    && product.getSeller().getId().equals(voucher.getSeller().getId()))
+                    || (product.getSeller() == null && voucher.getSeller() != null);
             if (eligible) {
                 subtotal = subtotal.add(item.getLineTotal());
             }
@@ -290,6 +390,27 @@ public class VoucherService {
         }
     }
 
+    private void normalizeVoucherDefaults(UpsertVoucherRequest request) {
+        if (request.getStartsAt() == null) {
+            request.setStartsAt(LocalDateTime.now());
+        }
+        if (request.getEndsAt() == null) {
+            request.setEndsAt(LocalDateTime.now().plusDays(30));
+        }
+        if (request.getAudience() == null) {
+            request.setAudience(com.example.thuedocosplay.entity.enums.VoucherAudience.ALL);
+        }
+        if (request.getProductScope() == null) {
+            request.setProductScope(VoucherProductScope.SELLER_PRODUCTS);
+        }
+        if (request.getMinimumOrderAmount() == null) {
+            request.setMinimumOrderAmount(BigDecimal.ZERO);
+        }
+        if (request.getPerUserLimit() == null) {
+            request.setPerUserLimit(1);
+        }
+    }
+
     private Voucher sellerVoucher(Long voucherId, Long sellerId) {
         Voucher voucher = voucherRepository.findById(voucherId)
                 .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay voucher"));
@@ -316,6 +437,33 @@ public class VoucherService {
 
     private String normalizeCode(String code) {
         return code == null ? "" : code.trim().toUpperCase();
+    }
+
+    private String uniqueCopyCode(String originalCode) {
+        String base = normalizeCode(originalCode);
+        String stem = base.length() > 31 ? base.substring(0, 31) : base;
+        String candidate = stem + "_COPY";
+        int attempt = 1;
+        while (voucherRepository.existsByCodeIgnoreCase(candidate)) {
+            String suffix = "_COPY" + attempt++;
+            int maxStem = Math.max(1, 40 - suffix.length());
+            candidate = (base.length() > maxStem ? base.substring(0, maxStem) : base) + suffix;
+        }
+        return candidate;
+    }
+
+    private String archivedCode(Voucher voucher) {
+        String suffix = "_DEL_" + voucher.getId();
+        String base = normalizeCode(voucher.getCode());
+        int maxBase = Math.max(1, 40 - suffix.length());
+        String candidate = (base.length() > maxBase ? base.substring(0, maxBase) : base) + suffix;
+        int attempt = 1;
+        while (voucherRepository.existsByCodeIgnoreCase(candidate)) {
+            String retrySuffix = suffix + "_" + attempt++;
+            maxBase = Math.max(1, 40 - retrySuffix.length());
+            candidate = (base.length() > maxBase ? base.substring(0, maxBase) : base) + retrySuffix;
+        }
+        return candidate;
     }
 
     private BigDecimal nullToZero(BigDecimal value) {
@@ -347,4 +495,6 @@ public class VoucherService {
                 .updatedAt(voucher.getUpdatedAt())
                 .build();
     }
+
+    public record VoucherSummary(long active, long totalUsed, long expiringSoon) {}
 }

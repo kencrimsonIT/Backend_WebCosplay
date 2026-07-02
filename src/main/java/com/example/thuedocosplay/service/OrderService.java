@@ -36,7 +36,6 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final VoucherService voucherService;
-    private final PromotionService promotionService;
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
@@ -49,6 +48,7 @@ public class OrderService {
                 || request.getPaymentMethod() == PaymentMethod.MOMO;
         OrderStatus initialStatus = online ? OrderStatus.PENDING_PAYMENT : OrderStatus.PENDING_CONFIRM;
         User customer = resolveOrderCustomer(currentUserEmail, request.getCustomerEmail());
+        String requestedVoucherCode = firstNonBlank(request.getVoucherCode(), request.getPromotionCode());
 
         RentalOrder order = RentalOrder.builder()
                 .orderCode(generateOrderCode())
@@ -63,8 +63,7 @@ public class OrderService {
                 .warrantyTotal(request.getWarrantyTotal())
                 .depositTotal(request.getDepositTotal())
                 .discountTotal(BigDecimal.ZERO)
-                .grandTotal(request.getGrandTotal())
-                .promotionCode(request.getPromotionCode())
+                .grandTotal(request.getRentalTotal().add(request.getWarrantyTotal()).add(request.getDepositTotal()))
                 .rentFrom(request.getRentFrom())
                 .rentTo(request.getRentTo())
                 .build();
@@ -91,15 +90,9 @@ public class OrderService {
         }
 
         VoucherApplyResponse voucherResult = null;
-        if (request.getVoucherCode() != null && !request.getVoucherCode().isBlank()) {
+        if (requestedVoucherCode != null) {
+            request.setVoucherCode(requestedVoucherCode);
             voucherResult = voucherService.applyVoucherToOrder(request, customer, order);
-        } else if (request.getDiscountTotal() != null && request.getDiscountTotal().compareTo(BigDecimal.ZERO) > 0) {
-            order.setDiscountTotal(request.getDiscountTotal());
-            order.setGrandTotal(order.getRentalTotal()
-                    .add(order.getWarrantyTotal())
-                    .add(order.getDepositTotal())
-                    .subtract(request.getDiscountTotal())
-                    .max(BigDecimal.ZERO));
         }
 
         if (!online) {
@@ -108,9 +101,6 @@ public class OrderService {
 
         RentalOrder saved = orderRepository.save(order);
         voucherService.recordVoucherUsage(voucherResult, request, customer, saved);
-        if (saved.getPromotionCode() != null && !saved.getPromotionCode().isBlank()) {
-            promotionService.incrementUsedCount(saved.getPromotionCode());
-        }
 
         log.info(
                 "[Order] Created orderCode={} customerId={} customerEmail={} itemCount={} rentalTotal={} depositTotal={} warrantyTotal={} discountTotal={} grandTotal={} paymentMethod={} status={}",
@@ -166,10 +156,12 @@ public class OrderService {
     @Transactional
     public OrderResponse updateStatus(Long id, UpdateOrderStatusRequest request) {
         RentalOrder order = findOrder(id);
+        OrderStatus oldStatus = order.getStatus();
         order.setStatus(request.getStatus());
         if (request.getStatus() == OrderStatus.COMPLETED && order.getPaidAt() == null) {
             order.setPaidAt(LocalDateTime.now());
         }
+        syncVoucherUsageForStatus(order, oldStatus, request.getStatus());
         return OrderMapper.toResponse(orderRepository.save(order));
     }
 
@@ -187,14 +179,17 @@ public class OrderService {
         }
 
         order.setStatus(OrderStatus.CANCELLED);
+        voucherService.releasePendingVoucherUsage(order);
         log.info("[Order] Cancelled orderId={} reason={}", orderId, reason);
         return OrderMapper.toResponse(orderRepository.save(order));
     }
 
     @Transactional
     public void markPaid(RentalOrder order) {
+        OrderStatus oldStatus = order.getStatus();
         order.setStatus(OrderStatus.PENDING_CONFIRM);
         order.setPaidAt(LocalDateTime.now());
+        syncVoucherUsageForStatus(order, oldStatus, order.getStatus());
         orderRepository.save(order);
         log.info("[Order] Marked paid orderId={} orderCode={} grandTotal={} paidAt={}",
                 order.getId(), order.getOrderCode(), order.getGrandTotal(), order.getPaidAt());
@@ -226,8 +221,27 @@ public class OrderService {
         return customer != null ? customer.getEmail() : requestEmail;
     }
 
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first.trim();
+        }
+        if (second != null && !second.isBlank()) {
+            return second.trim();
+        }
+        return null;
+    }
+
     private boolean hasCurrentUserEmail(String currentUserEmail) {
         return currentUserEmail != null && !currentUserEmail.isBlank() && !"anonymousUser".equals(currentUserEmail);
+    }
+
+    private void syncVoucherUsageForStatus(RentalOrder order, OrderStatus oldStatus, OrderStatus newStatus) {
+        if (newStatus == OrderStatus.CONFIRMED || newStatus == OrderStatus.RENTING || newStatus == OrderStatus.COMPLETED) {
+            voucherService.confirmVoucherUsage(order);
+        } else if (newStatus == OrderStatus.CANCELLED
+                && (oldStatus == OrderStatus.PENDING_PAYMENT || oldStatus == OrderStatus.PENDING_CONFIRM)) {
+            voucherService.releasePendingVoucherUsage(order);
+        }
     }
 
     private void validateDateRange(LocalDate fromDate, LocalDate toDate) {
