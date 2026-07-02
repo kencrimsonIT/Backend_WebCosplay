@@ -215,15 +215,33 @@ public class SellerService {
     }
 
     @Transactional(readOnly = true)
-    public List<SellerOrderResponse> listOrders(String currentUserEmail, OrderStatus status, LocalDate fromDate, LocalDate toDate) {
+    public List<SellerOrderResponse> listOrders(
+            String currentUserEmail,
+            OrderStatus status,
+            LocalDate fromDate,
+            LocalDate toDate,
+            String keyword) {
+
         User seller = requireSeller(currentUserEmail);
+
         validateDateRange(fromDate, toDate);
-        List<SellerOrderResponse> orders = orderRepository.findSellerOrders(seller.getId(), status, fromDate, toDate).stream()
+
+        if (keyword != null) {
+            keyword = keyword.trim();
+            if (keyword.isEmpty()) {
+                keyword = null;
+            }
+        }
+
+        return orderRepository.findSellerOrders(
+                        seller.getId(),
+                        status,
+                        fromDate,
+                        toDate
+
+                ).stream()
                 .map(order -> toOrderResponse(order, seller.getId()))
                 .toList();
-        log.info("[SellerOrder] Listed sellerId={} status={} fromDate={} toDate={} orderCount={}",
-                seller.getId(), status, fromDate, toDate, orders.size());
-        return orders;
     }
 
     @Transactional(readOnly = true)

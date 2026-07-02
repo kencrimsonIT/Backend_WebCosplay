@@ -92,6 +92,7 @@ public interface RentalOrderRepository
             @Param("status") OrderStatus status,
             @Param("fromDate") LocalDate fromDate,
             @Param("toDate") LocalDate toDate
+
     );
 
     @Query("""

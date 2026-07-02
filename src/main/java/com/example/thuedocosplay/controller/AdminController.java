@@ -99,17 +99,4 @@ public class AdminController {
         adminService.deleteProduct(id);
         return ApiResponse.ok(null);
     }
-
-    // Orders
-    @GetMapping("/orders")
-    public ApiResponse<List<OrderResponse>> listOrders() {
-        return ApiResponse.ok(orderService.listOrders());
-    }
-
-    @PatchMapping("/orders/{id}/status")
-    public ApiResponse<OrderResponse> updateOrderStatus(
-            @PathVariable Long id,
-            @Valid @RequestBody UpdateOrderStatusRequest request) {
-        return ApiResponse.ok(orderService.updateStatus(id, request));
-    }
 }
