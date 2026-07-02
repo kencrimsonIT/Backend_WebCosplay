@@ -70,11 +70,11 @@ public class OrderService {
 
         for (CreateOrderItemRequest itemReq : request.getItems()) {
             if (itemReq.getProductId() == null) {
-                throw new IllegalArgumentException("Du lieu don hang thieu productId");
+                throw new IllegalArgumentException("Dữ liệu đơn hàng thiếu productId");
             }
 
             Product product = productRepository.findById(itemReq.getProductId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay san pham voi ID: " + itemReq.getProductId()));
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy sản phẩm với ID: " + itemReq.getProductId()));
 
             OrderItem item = OrderItem.builder()
                     .order(order)
@@ -142,14 +142,14 @@ public class OrderService {
     public OrderResponse getMyOrderDetail(String currentUserEmail, Long orderId) {
         User user = requireCurrentUser(currentUserEmail);
         RentalOrder order = orderRepository.findCustomerOrderDetail(orderId, user.getId(), user.getEmail())
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
         return OrderMapper.toResponse(order);
     }
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrdersByUserEmail(String email) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay nguoi dung"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
         return orderRepository.findByCustomerOrEmail(user, email).stream().map(OrderMapper::toResponse).toList();
     }
 
@@ -172,10 +172,10 @@ public class OrderService {
                 || (order.getCustomer() != null && userEmail.equals(order.getCustomer().getEmail()));
 
         if (!isOwner) {
-            throw new IllegalStateException("Ban khong co quyen huy don hang nay");
+            throw new IllegalStateException("Bạn không có quyền hủy đơn hàng này");
         }
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT && order.getStatus() != OrderStatus.PENDING_CONFIRM) {
-            throw new IllegalStateException("Khong the huy don hang o trang thai: " + order.getStatus());
+            throw new IllegalStateException("Không thể hủy đơn hàng ở trạng thái: " + order.getStatus());
         }
 
         order.setStatus(OrderStatus.CANCELLED);
@@ -197,15 +197,15 @@ public class OrderService {
 
     public RentalOrder findOrder(Long id) {
         return orderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
     }
 
     private User requireCurrentUser(String currentUserEmail) {
         if (!hasCurrentUserEmail(currentUserEmail)) {
-            throw new AuthenticationCredentialsNotFoundException("Vui long dang nhap");
+            throw new AuthenticationCredentialsNotFoundException("Vui lòng đăng nhập");
         }
         return userRepository.findByEmail(currentUserEmail)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay tai khoan"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản"));
     }
 
     private User resolveOrderCustomer(String currentUserEmail, String requestEmail) {
@@ -246,7 +246,7 @@ public class OrderService {
 
     private void validateDateRange(LocalDate fromDate, LocalDate toDate) {
         if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
-            throw new IllegalArgumentException("Ngay bat dau khong duoc sau ngay ket thuc");
+            throw new IllegalArgumentException("Ngày bắt đầu khong duoc sau ngay ket thuc");
         }
     }
 

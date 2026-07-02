@@ -55,7 +55,7 @@ public class VoucherService {
         User seller = requireSeller(currentUserEmail);
         String code = normalizeCode(request.getCode());
         if (voucherRepository.existsByCodeIgnoreCase(code)) {
-            throw new IllegalArgumentException("Ma voucher da ton tai");
+            throw new IllegalArgumentException("Mã voucher da ton tai");
         }
         normalizeVoucherDefaults(request);
         validateVoucherRequest(request);
@@ -91,7 +91,7 @@ public class VoucherService {
         Voucher voucher = sellerVoucher(voucherId, seller.getId());
         String code = normalizeCode(request.getCode());
         if (!voucher.getCode().equalsIgnoreCase(code) && voucherRepository.existsByCodeIgnoreCase(code)) {
-            throw new IllegalArgumentException("Ma voucher da ton tai");
+            throw new IllegalArgumentException("Mã voucher da ton tai");
         }
         normalizeVoucherDefaults(request);
         validateVoucherRequest(request);
@@ -185,7 +185,7 @@ public class VoucherService {
     public VoucherApplyResponse previewVoucher(String currentUserEmail, ApplyVoucherRequest request) {
         User user = currentUser(currentUserEmail);
         Voucher voucher = voucherRepository.findByCodeIgnoreCase(normalizeCode(request.getCode()))
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay voucher"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy voucher"));
         return calculateVoucher(voucher, request.getItems(), request.getRentalTotal(), request.getWarrantyTotal(),
                 request.getDepositTotal(), user, user != null ? user.getEmail() : null);
     }
@@ -198,7 +198,7 @@ public class VoucherService {
         }
 
         Voucher voucher = voucherRepository.findByCodeIgnoreCase(normalizeCode(request.getVoucherCode()))
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay voucher"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy voucher"));
         VoucherApplyResponse result = calculateVoucher(
                 voucher,
                 request.getItems(),
@@ -227,7 +227,7 @@ public class VoucherService {
             return;
         }
         Voucher voucher = voucherRepository.findById(result.getVoucherId())
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay voucher"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy voucher"));
         usageRepository.save(VoucherUsage.builder()
                 .voucher(voucher)
                 .order(order)
@@ -292,7 +292,7 @@ public class VoucherService {
         BigDecimal eligibleSubtotal = eligibleSubtotal(voucher, items);
         BigDecimal minimum = nullToZero(voucher.getMinimumOrderAmount());
         if (eligibleSubtotal.compareTo(minimum) < 0) {
-            throw new IllegalArgumentException("Don hang chua dat gia tri toi thieu cua voucher");
+            throw new IllegalArgumentException("Đơn hàng chưa đạt giá trị tối thiểu của voucher");
         }
 
         BigDecimal discount = calculateDiscount(voucher, eligibleSubtotal);
@@ -301,6 +301,10 @@ public class VoucherService {
                 .add(nullToZero(depositTotal))
                 .subtract(discount)
                 .max(BigDecimal.ZERO);
+        long usedCount = usageRepository.countByVoucher_Id(voucher.getId());
+        long userUsedCount = customerEmail == null
+                ? 0
+                : usageRepository.countByVoucher_IdAndCustomerEmailIgnoreCase(voucher.getId(), customerEmail);
 
         return VoucherApplyResponse.builder()
                 .voucherId(voucher.getId())
@@ -312,31 +316,35 @@ public class VoucherService {
                 .discountAmount(discount)
                 .payableTotal(payable)
                 .stackable(voucher.getStackable())
-                .message("Ap dung voucher thanh cong")
+                .usageLimit(voucher.getUsageLimit())
+                .perUserLimit(voucher.getPerUserLimit())
+                .usedCount(usedCount)
+                .userUsedCount(userUsedCount)
+                .message("Áp dụng voucher thành công")
                 .build();
     }
 
     private void validateUsable(Voucher voucher, String customerEmail) {
         LocalDateTime now = LocalDateTime.now();
         if (Boolean.TRUE.equals(voucher.getDeleted())) {
-            throw new IllegalArgumentException("Voucher da bi xoa");
+            throw new IllegalArgumentException("Voucher đã bị xóa");
         }
         if (voucher.getStatus() != VoucherStatus.ACTIVE) {
-            throw new IllegalArgumentException("Voucher khong dang hoat dong");
+            throw new IllegalArgumentException("Voucher không đang hoạt động");
         }
         if (voucher.getStartsAt() != null && now.isBefore(voucher.getStartsAt())) {
-            throw new IllegalArgumentException("Voucher chua den thoi gian su dung");
+            throw new IllegalArgumentException("Voucher chua d?n th?i gian s? d?ng");
         }
         if (voucher.getEndsAt() != null && now.isAfter(voucher.getEndsAt())) {
             voucher.setStatus(VoucherStatus.EXPIRED);
-            throw new IllegalArgumentException("Voucher da het han");
+            throw new IllegalArgumentException("Voucher đã hết hạn");
         }
         if (voucher.getUsageLimit() != null && usageRepository.countByVoucher_Id(voucher.getId()) >= voucher.getUsageLimit()) {
-            throw new IllegalArgumentException("Voucher da het luot su dung");
+            throw new IllegalArgumentException("Voucher đã hết lượt sử dụng");
         }
         if (customerEmail != null && voucher.getPerUserLimit() != null && voucher.getPerUserLimit() > 0
                 && usageRepository.countByVoucher_IdAndCustomerEmailIgnoreCase(voucher.getId(), customerEmail) >= voucher.getPerUserLimit()) {
-            throw new IllegalArgumentException("Ban da dung voucher nay het so luot cho phep");
+            throw new IllegalArgumentException("Bạn đã dùng voucher này hết số lượt cho phép");
         }
     }
 
@@ -355,7 +363,7 @@ public class VoucherService {
             }
         }
         if (subtotal.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Voucher khong ap dung cho san pham trong gio hang");
+            throw new IllegalArgumentException("Voucher không áp dụng cho sản phẩm trong giỏ hàng");
         }
         return subtotal;
     }
@@ -379,14 +387,14 @@ public class VoucherService {
 
     private void validateVoucherRequest(UpsertVoucherRequest request) {
         if (request.getStartsAt().isAfter(request.getEndsAt())) {
-            throw new IllegalArgumentException("Ngay bat dau khong duoc sau ngay ket thuc");
+            throw new IllegalArgumentException("Ngày bắt đầu khong duoc sau ngay ket thuc");
         }
         if (request.getDiscountValue().compareTo(BigDecimal.ZERO) <= 0 && request.getDiscountType() != VoucherDiscountType.FREE_SHIPPING) {
-            throw new IllegalArgumentException("Gia tri giam phai lon hon 0");
+            throw new IllegalArgumentException("Giá trị giảm phai lon hon 0");
         }
         if (request.getDiscountType() == VoucherDiscountType.PERCENTAGE
                 && request.getDiscountValue().compareTo(new BigDecimal("100")) > 0) {
-            throw new IllegalArgumentException("Voucher phan tram khong duoc vuot qua 100%");
+            throw new IllegalArgumentException("Voucher phần trăm không được vượt quá 100%");
         }
     }
 
@@ -413,9 +421,9 @@ public class VoucherService {
 
     private Voucher sellerVoucher(Long voucherId, Long sellerId) {
         Voucher voucher = voucherRepository.findById(voucherId)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay voucher"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy voucher"));
         if (voucher.getSeller() == null || !voucher.getSeller().getId().equals(sellerId)) {
-            throw new AccessDeniedException("Ban khong co quyen quan ly voucher nay");
+            throw new AccessDeniedException("Bạn không có quyền quản lý voucher này");
         }
         return voucher;
     }
@@ -423,7 +431,7 @@ public class VoucherService {
     private User requireSeller(String email) {
         User user = currentUser(email);
         if (user == null || (user.getRole() != UserRole.SELLER && user.getRole() != UserRole.ADMIN)) {
-            throw new AccessDeniedException("Chi seller hoac admin duoc quan ly voucher");
+            throw new AccessDeniedException("Chỉ seller hoặc admin được quản lý voucher");
         }
         return user;
     }

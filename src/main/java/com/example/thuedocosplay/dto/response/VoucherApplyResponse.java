@@ -18,5 +18,9 @@ public class VoucherApplyResponse {
     private BigDecimal discountAmount;
     private BigDecimal payableTotal;
     private Boolean stackable;
+    private Integer usageLimit;
+    private Integer perUserLimit;
+    private Long usedCount;
+    private Long userUsedCount;
     private String message;
 }

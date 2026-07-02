@@ -43,7 +43,7 @@ public class PaymentService {
 
         String txnRef = "TXN" + System.currentTimeMillis() + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
         long amount = order.getGrandTotal().longValue();
-        String orderInfo = "Thanh toan don hang " + order.getOrderCode();
+        String orderInfo = "Thanh toán đơn hàng " + order.getOrderCode();
         String paymentUrl = "";
 
         if (order.getPaymentMethod() == PaymentMethod.VNPAY) {

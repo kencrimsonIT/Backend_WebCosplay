@@ -72,7 +72,7 @@ public class PromotionService {
     @Transactional(readOnly = true)
     public PromotionResponse checkAndApplyPromotion(String code, BigDecimal cartTotal) {
         Voucher voucher = voucherRepository.findByCodeIgnoreCase(normalizeCode(code))
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay voucher"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy voucher"));
         validateSimpleVoucher(voucher, cartTotal);
         return PromotionResponse.fromVoucher(voucher);
     }
@@ -129,24 +129,24 @@ public class PromotionService {
     private void validateSimpleVoucher(Voucher voucher, BigDecimal cartTotal) {
         LocalDateTime now = LocalDateTime.now();
         if (Boolean.TRUE.equals(voucher.getDeleted())) {
-            throw new IllegalArgumentException("Voucher da bi xoa");
+            throw new IllegalArgumentException("Voucher đã bị xóa");
         }
         if (voucher.getStatus() != VoucherStatus.ACTIVE) {
-            throw new IllegalArgumentException("Voucher khong dang hoat dong");
+            throw new IllegalArgumentException("Voucher không đang hoạt động");
         }
         if (voucher.getStartsAt() != null && voucher.getStartsAt().isAfter(now)) {
-            throw new IllegalArgumentException("Voucher chua den thoi gian su dung");
+            throw new IllegalArgumentException("Voucher chua d?n th?i gian s? d?ng");
         }
         if (voucher.getEndsAt() != null && voucher.getEndsAt().isBefore(now)) {
-            throw new IllegalArgumentException("Voucher da het han");
+            throw new IllegalArgumentException("Voucher đã hết hạn");
         }
         BigDecimal minimum = voucher.getMinimumOrderAmount() == null ? BigDecimal.ZERO : voucher.getMinimumOrderAmount();
         if (cartTotal != null && cartTotal.compareTo(minimum) < 0) {
-            throw new IllegalArgumentException("Don hang chua dat gia tri toi thieu " + minimum + "d");
+            throw new IllegalArgumentException("Đơn hàng chưa đạt giá trị tối thiểu " + minimum + "d");
         }
         if (voucher.getUsageLimit() != null && voucher.getUsedCount() != null
                 && voucher.getUsedCount() >= voucher.getUsageLimit()) {
-            throw new IllegalArgumentException("Voucher da het luot su dung");
+            throw new IllegalArgumentException("Voucher đã hết lượt sử dụng");
         }
     }
 

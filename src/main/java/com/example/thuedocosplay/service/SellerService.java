@@ -230,7 +230,7 @@ public class SellerService {
     public SellerOrderResponse getOrder(String currentUserEmail, Long orderId) {
         User seller = requireSeller(currentUserEmail);
         RentalOrder order = orderRepository.findSellerOrderDetail(orderId, seller.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang cua nguoi ban"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng của người bán"));
         log.info("[SellerOrder] Viewed detail sellerId={} orderId={} orderCode={} status={}",
                 seller.getId(), order.getId(), order.getOrderCode(), order.getStatus());
         return toOrderResponse(order, seller.getId());
@@ -240,7 +240,7 @@ public class SellerService {
     public SellerOrderResponse updateOrderStatus(String currentUserEmail, Long orderId, UpdateOrderStatusRequest request) {
         User seller = requireSeller(currentUserEmail);
         RentalOrder order = orderRepository.findSellerOrderDetail(orderId, seller.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang cua nguoi ban"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng của người bán"));
         validateSellerStatusUpdate(request.getStatus());
         OrderStatus oldStatus = order.getStatus();
         order.setStatus(request.getStatus());
@@ -308,12 +308,12 @@ public class SellerService {
 
     private User requireSeller(String currentUserEmail) {
         if (currentUserEmail == null || currentUserEmail.isBlank()) {
-            throw new AuthenticationCredentialsNotFoundException("Vui long dang nhap voi tai khoan nguoi ban");
+            throw new AuthenticationCredentialsNotFoundException("Vui lòng đăng nhập với tài khoản người bán");
         }
         User user = userRepository.findByEmail(currentUserEmail)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay tai khoan dang dang nhap"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản đang đăng nhập"));
         if (user.getRole() != UserRole.SELLER) {
-            throw new AccessDeniedException("Chi nguoi ban moi duoc truy cap chuc nang nay");
+            throw new AccessDeniedException("Chỉ người bán mới được truy cập chức năng này");
         }
         return user;
     }
@@ -324,12 +324,12 @@ public class SellerService {
 
     private Product findSellerProduct(Long productId, Long sellerId) {
         return productRepository.findByIdAndSeller_Id(productId, sellerId)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay san pham cua nguoi ban"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy sản phẩm của người bán"));
     }
 
     private void validateSellerStatusUpdate(OrderStatus status) {
         if (status == OrderStatus.PENDING_PAYMENT) {
-            throw new IllegalArgumentException("Nguoi ban khong duoc chuyen don ve trang thai cho thanh toan");
+            throw new IllegalArgumentException("Người bán không được chuyển đơn về trạng thái chờ thanh toán");
         }
     }
 
@@ -436,7 +436,7 @@ public class SellerService {
 
     private void validateDateRange(LocalDate fromDate, LocalDate toDate) {
         if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
-            throw new IllegalArgumentException("Ngay bat dau khong duoc sau ngay ket thuc");
+            throw new IllegalArgumentException("Ngày bắt đầu khong duoc sau ngay ket thuc");
         }
     }
 
