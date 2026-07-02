@@ -36,7 +36,6 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final UserRepository userRepository;
     private final VoucherService voucherService;
-    private final PromotionService promotionService;
 
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
@@ -49,6 +48,7 @@ public class OrderService {
                 || request.getPaymentMethod() == PaymentMethod.MOMO;
         OrderStatus initialStatus = online ? OrderStatus.PENDING_PAYMENT : OrderStatus.PENDING_CONFIRM;
         User customer = resolveOrderCustomer(currentUserEmail, request.getCustomerEmail());
+        String requestedVoucherCode = firstNonBlank(request.getVoucherCode(), request.getPromotionCode());
 
         RentalOrder order = RentalOrder.builder()
                 .orderCode(generateOrderCode())
@@ -63,19 +63,18 @@ public class OrderService {
                 .warrantyTotal(request.getWarrantyTotal())
                 .depositTotal(request.getDepositTotal())
                 .discountTotal(BigDecimal.ZERO)
-                .grandTotal(request.getGrandTotal())
-                .promotionCode(request.getPromotionCode())
+                .grandTotal(request.getRentalTotal().add(request.getWarrantyTotal()).add(request.getDepositTotal()))
                 .rentFrom(request.getRentFrom())
                 .rentTo(request.getRentTo())
                 .build();
 
         for (CreateOrderItemRequest itemReq : request.getItems()) {
             if (itemReq.getProductId() == null) {
-                throw new IllegalArgumentException("Du lieu don hang thieu productId");
+                throw new IllegalArgumentException("Dữ liệu đơn hàng thiếu productId");
             }
 
             Product product = productRepository.findById(itemReq.getProductId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay san pham voi ID: " + itemReq.getProductId()));
+                    .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy sản phẩm với ID: " + itemReq.getProductId()));
 
             OrderItem item = OrderItem.builder()
                     .order(order)
@@ -91,15 +90,9 @@ public class OrderService {
         }
 
         VoucherApplyResponse voucherResult = null;
-        if (request.getVoucherCode() != null && !request.getVoucherCode().isBlank()) {
+        if (requestedVoucherCode != null) {
+            request.setVoucherCode(requestedVoucherCode);
             voucherResult = voucherService.applyVoucherToOrder(request, customer, order);
-        } else if (request.getDiscountTotal() != null && request.getDiscountTotal().compareTo(BigDecimal.ZERO) > 0) {
-            order.setDiscountTotal(request.getDiscountTotal());
-            order.setGrandTotal(order.getRentalTotal()
-                    .add(order.getWarrantyTotal())
-                    .add(order.getDepositTotal())
-                    .subtract(request.getDiscountTotal())
-                    .max(BigDecimal.ZERO));
         }
 
         if (!online) {
@@ -108,9 +101,6 @@ public class OrderService {
 
         RentalOrder saved = orderRepository.save(order);
         voucherService.recordVoucherUsage(voucherResult, request, customer, saved);
-        if (saved.getPromotionCode() != null && !saved.getPromotionCode().isBlank()) {
-            promotionService.incrementUsedCount(saved.getPromotionCode());
-        }
 
         log.info(
                 "[Order] Created orderCode={} customerId={} customerEmail={} itemCount={} rentalTotal={} depositTotal={} warrantyTotal={} discountTotal={} grandTotal={} paymentMethod={} status={}",
@@ -152,24 +142,26 @@ public class OrderService {
     public OrderResponse getMyOrderDetail(String currentUserEmail, Long orderId) {
         User user = requireCurrentUser(currentUserEmail);
         RentalOrder order = orderRepository.findCustomerOrderDetail(orderId, user.getId(), user.getEmail())
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
         return OrderMapper.toResponse(order);
     }
 
     @Transactional(readOnly = true)
     public List<OrderResponse> getOrdersByUserEmail(String email) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay nguoi dung"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy người dùng"));
         return orderRepository.findByCustomerOrEmail(user, email).stream().map(OrderMapper::toResponse).toList();
     }
 
     @Transactional
     public OrderResponse updateStatus(Long id, UpdateOrderStatusRequest request) {
         RentalOrder order = findOrder(id);
+        OrderStatus oldStatus = order.getStatus();
         order.setStatus(request.getStatus());
         if (request.getStatus() == OrderStatus.COMPLETED && order.getPaidAt() == null) {
             order.setPaidAt(LocalDateTime.now());
         }
+        syncVoucherUsageForStatus(order, oldStatus, request.getStatus());
         return OrderMapper.toResponse(orderRepository.save(order));
     }
 
@@ -180,21 +172,24 @@ public class OrderService {
                 || (order.getCustomer() != null && userEmail.equals(order.getCustomer().getEmail()));
 
         if (!isOwner) {
-            throw new IllegalStateException("Ban khong co quyen huy don hang nay");
+            throw new IllegalStateException("Bạn không có quyền hủy đơn hàng này");
         }
         if (order.getStatus() != OrderStatus.PENDING_PAYMENT && order.getStatus() != OrderStatus.PENDING_CONFIRM) {
-            throw new IllegalStateException("Khong the huy don hang o trang thai: " + order.getStatus());
+            throw new IllegalStateException("Không thể hủy đơn hàng ở trạng thái: " + order.getStatus());
         }
 
         order.setStatus(OrderStatus.CANCELLED);
+        voucherService.releasePendingVoucherUsage(order);
         log.info("[Order] Cancelled orderId={} reason={}", orderId, reason);
         return OrderMapper.toResponse(orderRepository.save(order));
     }
 
     @Transactional
     public void markPaid(RentalOrder order) {
+        OrderStatus oldStatus = order.getStatus();
         order.setStatus(OrderStatus.PENDING_CONFIRM);
         order.setPaidAt(LocalDateTime.now());
+        syncVoucherUsageForStatus(order, oldStatus, order.getStatus());
         orderRepository.save(order);
         log.info("[Order] Marked paid orderId={} orderCode={} grandTotal={} paidAt={}",
                 order.getId(), order.getOrderCode(), order.getGrandTotal(), order.getPaidAt());
@@ -202,15 +197,15 @@ public class OrderService {
 
     public RentalOrder findOrder(Long id) {
         return orderRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay don hang"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
     }
 
     private User requireCurrentUser(String currentUserEmail) {
         if (!hasCurrentUserEmail(currentUserEmail)) {
-            throw new AuthenticationCredentialsNotFoundException("Vui long dang nhap");
+            throw new AuthenticationCredentialsNotFoundException("Vui lòng đăng nhập");
         }
         return userRepository.findByEmail(currentUserEmail)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay tai khoan"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy tài khoản"));
     }
 
     private User resolveOrderCustomer(String currentUserEmail, String requestEmail) {
@@ -226,13 +221,32 @@ public class OrderService {
         return customer != null ? customer.getEmail() : requestEmail;
     }
 
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first.trim();
+        }
+        if (second != null && !second.isBlank()) {
+            return second.trim();
+        }
+        return null;
+    }
+
     private boolean hasCurrentUserEmail(String currentUserEmail) {
         return currentUserEmail != null && !currentUserEmail.isBlank() && !"anonymousUser".equals(currentUserEmail);
     }
 
+    private void syncVoucherUsageForStatus(RentalOrder order, OrderStatus oldStatus, OrderStatus newStatus) {
+        if (newStatus == OrderStatus.CONFIRMED || newStatus == OrderStatus.RENTING || newStatus == OrderStatus.COMPLETED) {
+            voucherService.confirmVoucherUsage(order);
+        } else if (newStatus == OrderStatus.CANCELLED
+                && (oldStatus == OrderStatus.PENDING_PAYMENT || oldStatus == OrderStatus.PENDING_CONFIRM)) {
+            voucherService.releasePendingVoucherUsage(order);
+        }
+    }
+
     private void validateDateRange(LocalDate fromDate, LocalDate toDate) {
         if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
-            throw new IllegalArgumentException("Ngay bat dau khong duoc sau ngay ket thuc");
+            throw new IllegalArgumentException("Ngày bắt đầu khong duoc sau ngay ket thuc");
         }
     }
 

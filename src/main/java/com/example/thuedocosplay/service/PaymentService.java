@@ -28,6 +28,7 @@ public class PaymentService {
     private final OrderService orderService;
     private final VnPayService vnPayService;
     private final MoMoService moMoService;
+    private final VoucherService voucherService;
 
     // =========================================================================
     // 1. TẠO URL THANH TOÁN
@@ -42,7 +43,7 @@ public class PaymentService {
 
         String txnRef = "TXN" + System.currentTimeMillis() + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
         long amount = order.getGrandTotal().longValue();
-        String orderInfo = "Thanh toan don hang " + order.getOrderCode();
+        String orderInfo = "Thanh toán đơn hàng " + order.getOrderCode();
         String paymentUrl = "";
 
         if (order.getPaymentMethod() == PaymentMethod.VNPAY) {
@@ -132,6 +133,7 @@ public class PaymentService {
             } else {
                 txn.setStatus(PaymentStatus.FAILED);
                 txn.getOrder().setStatus(OrderStatus.CANCELLED);
+                voucherService.releasePendingVoucherUsage(txn.getOrder());
                 log.info("[VNPay] Thanh toán thất bại cho đơn: {}", txnRef);
             }
 
@@ -214,6 +216,7 @@ public class PaymentService {
             } else {
                 txn.setStatus(PaymentStatus.FAILED);
                 txn.getOrder().setStatus(OrderStatus.CANCELLED);
+                voucherService.releasePendingVoucherUsage(txn.getOrder());
                 log.info("[MoMo] Thanh toán thất bại cho đơn: {}", orderId);
             }
 

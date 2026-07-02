@@ -3,6 +3,7 @@ package com.example.thuedocosplay.controller;
 import com.example.thuedocosplay.dto.request.ApplyVoucherRequest;
 import com.example.thuedocosplay.dto.request.UpsertVoucherRequest;
 import com.example.thuedocosplay.dto.response.ApiResponse;
+import com.example.thuedocosplay.dto.response.PromotionSummaryResponse;
 import com.example.thuedocosplay.dto.response.VoucherApplyResponse;
 import com.example.thuedocosplay.dto.response.VoucherResponse;
 import com.example.thuedocosplay.service.VoucherService;
@@ -37,7 +38,7 @@ public class VoucherController {
             Principal principal,
             @Valid @RequestBody UpsertVoucherRequest request
     ) {
-        return ApiResponse.ok("Da tao voucher", voucherService.createSellerVoucher(currentEmail(principal), request));
+        return ApiResponse.ok("Đã tạo voucher", voucherService.createSellerVoucher(currentEmail(principal), request));
     }
 
     @PutMapping("/api/seller/vouchers/{id}")
@@ -46,12 +47,29 @@ public class VoucherController {
             @PathVariable Long id,
             @Valid @RequestBody UpsertVoucherRequest request
     ) {
-        return ApiResponse.ok("Da cap nhat voucher", voucherService.updateSellerVoucher(currentEmail(principal), id, request));
+        return ApiResponse.ok("Đã cập nhật voucher", voucherService.updateSellerVoucher(currentEmail(principal), id, request));
     }
 
     @PatchMapping("/api/seller/vouchers/{id}/toggle")
     public ApiResponse<VoucherResponse> toggleSellerVoucher(Principal principal, @PathVariable Long id) {
-        return ApiResponse.ok("Da doi trang thai voucher", voucherService.toggleSellerVoucher(currentEmail(principal), id));
+        return ApiResponse.ok("Đã đổi trạng thái voucher", voucherService.toggleSellerVoucher(currentEmail(principal), id));
+    }
+
+    @PostMapping("/api/seller/vouchers/{id}/duplicate")
+    public ApiResponse<VoucherResponse> duplicateSellerVoucher(Principal principal, @PathVariable Long id) {
+        return ApiResponse.ok("Đã copy voucher", voucherService.duplicateSellerVoucher(currentEmail(principal), id));
+    }
+
+    @DeleteMapping("/api/seller/vouchers/{id}")
+    public ApiResponse<Void> deleteSellerVoucher(Principal principal, @PathVariable Long id) {
+        voucherService.deleteSellerVoucher(currentEmail(principal), id);
+        return ApiResponse.ok("Đã xóa voucher", null);
+    }
+
+    @GetMapping("/api/seller/vouchers/summary")
+    public ApiResponse<PromotionSummaryResponse> voucherSummary(Principal principal) {
+        VoucherService.VoucherSummary summary = voucherService.getSellerSummary(currentEmail(principal));
+        return ApiResponse.ok(new PromotionSummaryResponse(summary.active(), summary.totalUsed(), summary.expiringSoon()));
     }
 
     private String currentEmail(Principal principal) {

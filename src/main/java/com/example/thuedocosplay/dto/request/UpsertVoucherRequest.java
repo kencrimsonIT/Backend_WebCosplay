@@ -13,16 +13,16 @@ import java.time.LocalDateTime;
 
 @Data
 public class UpsertVoucherRequest {
-    @NotBlank(message = "Vui long nhap ten chuong trinh")
+    @NotBlank(message = "Vui lòng nhập tên chương trình")
     private String title;
 
-    @NotBlank(message = "Vui long nhap ma voucher")
+    @NotBlank(message = "Vui lòng nhập mã voucher")
     private String code;
 
-    @NotNull(message = "Vui long chon loai giam gia")
+    @NotNull(message = "Vui lòng chọn loại giảm giá")
     private VoucherDiscountType discountType;
 
-    @NotNull(message = "Vui long nhap gia tri giam")
+    @NotNull(message = "Vui lòng nhập giá trị giảm")
     private BigDecimal discountValue;
 
     private BigDecimal maxDiscountAmount;
@@ -33,10 +33,10 @@ public class UpsertVoucherRequest {
 
     private Integer perUserLimit = 1;
 
-    @NotNull(message = "Vui long chon ngay bat dau")
+    @NotNull(message = "Vui lòng chọn ngày bắt đầu")
     private LocalDateTime startsAt;
 
-    @NotNull(message = "Vui long chon ngay ket thuc")
+    @NotNull(message = "Vui lòng chọn ngày kết thúc")
     private LocalDateTime endsAt;
 
     private VoucherStatus status = VoucherStatus.ACTIVE;
