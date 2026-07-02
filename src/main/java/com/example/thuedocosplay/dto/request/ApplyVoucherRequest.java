@@ -11,7 +11,7 @@ import java.util.List;
 
 @Data
 public class ApplyVoucherRequest {
-    @NotBlank(message = "Vui long nhap ma voucher")
+    @NotBlank(message = "Vui lòng nhập mã voucher")
     private String code;
 
     @NotNull(message = "Thieu tong tien thue")

@@ -40,6 +40,10 @@ public class VoucherUsage {
     @Column(name = "discount_amount", nullable = false, precision = 15, scale = 0)
     private BigDecimal discountAmount;
 
+    @Column(name = "counted", nullable = false)
+    @Builder.Default
+    private Boolean counted = false;
+
     @CreatedDate
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;

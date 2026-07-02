@@ -44,7 +44,7 @@ public class VoucherService {
     @Transactional(readOnly = true)
     public List<VoucherResponse> listSellerVouchers(String currentUserEmail) {
         User seller = requireSeller(currentUserEmail);
-        return voucherRepository.findAllBySeller_IdOrderByCreatedAtDesc(seller.getId())
+        return voucherRepository.findVisibleBySellerId(seller.getId())
                 .stream()
                 .map(this::toResponse)
                 .toList();
@@ -55,8 +55,9 @@ public class VoucherService {
         User seller = requireSeller(currentUserEmail);
         String code = normalizeCode(request.getCode());
         if (voucherRepository.existsByCodeIgnoreCase(code)) {
-            throw new IllegalArgumentException("Ma voucher da ton tai");
+            throw new IllegalArgumentException("Mã voucher da ton tai");
         }
+        normalizeVoucherDefaults(request);
         validateVoucherRequest(request);
 
         Voucher voucher = Voucher.builder()
@@ -73,9 +74,10 @@ public class VoucherService {
                 .endsAt(request.getEndsAt())
                 .status(request.getStatus() == null ? VoucherStatus.ACTIVE : request.getStatus())
                 .audience(request.getAudience())
-                .productScope(request.getProductScope() == null ? VoucherProductScope.SELLER_PRODUCTS : request.getProductScope())
+                .productScope(VoucherProductScope.SELLER_PRODUCTS)
                 .stackable(Boolean.TRUE.equals(request.getStackable()))
                 .description(request.getDescription())
+                .deleted(false)
                 .build();
 
         Voucher saved = voucherRepository.save(voucher);
@@ -89,8 +91,9 @@ public class VoucherService {
         Voucher voucher = sellerVoucher(voucherId, seller.getId());
         String code = normalizeCode(request.getCode());
         if (!voucher.getCode().equalsIgnoreCase(code) && voucherRepository.existsByCodeIgnoreCase(code)) {
-            throw new IllegalArgumentException("Ma voucher da ton tai");
+            throw new IllegalArgumentException("Mã voucher da ton tai");
         }
+        normalizeVoucherDefaults(request);
         validateVoucherRequest(request);
 
         voucher.setCode(code);
@@ -105,13 +108,67 @@ public class VoucherService {
         voucher.setEndsAt(request.getEndsAt());
         voucher.setStatus(request.getStatus() == null ? voucher.getStatus() : request.getStatus());
         voucher.setAudience(request.getAudience());
-        voucher.setProductScope(request.getProductScope() == null ? VoucherProductScope.SELLER_PRODUCTS : request.getProductScope());
+        voucher.setProductScope(VoucherProductScope.SELLER_PRODUCTS);
         voucher.setStackable(Boolean.TRUE.equals(request.getStackable()));
         voucher.setDescription(request.getDescription());
 
         Voucher saved = voucherRepository.save(voucher);
         log.info("[Voucher] seller={} updated code={}", seller.getEmail(), saved.getCode());
         return toResponse(saved);
+    }
+
+    @Transactional
+    public VoucherResponse duplicateSellerVoucher(String currentUserEmail, Long voucherId) {
+        User seller = requireSeller(currentUserEmail);
+        Voucher source = sellerVoucher(voucherId, seller.getId());
+        String newCode = uniqueCopyCode(source.getCode());
+
+        Voucher copy = Voucher.builder()
+                .seller(seller)
+                .code(newCode)
+                .title(source.getTitle() + " (copy)")
+                .discountType(source.getDiscountType())
+                .discountValue(source.getDiscountValue())
+                .maxDiscountAmount(source.getMaxDiscountAmount())
+                .minimumOrderAmount(nullToZero(source.getMinimumOrderAmount()))
+                .usageLimit(source.getUsageLimit())
+                .perUserLimit(source.getPerUserLimit())
+                .usedCount(0)
+                .startsAt(source.getStartsAt())
+                .endsAt(source.getEndsAt())
+                .status(VoucherStatus.DRAFT)
+                .audience(source.getAudience())
+                .productScope(source.getProductScope())
+                .stackable(Boolean.TRUE.equals(source.getStackable()))
+                .description(source.getDescription())
+                .deleted(false)
+                .build();
+
+        Voucher saved = voucherRepository.save(copy);
+        log.info("[Voucher] seller={} duplicated source={} copy={}", seller.getEmail(), source.getCode(), saved.getCode());
+        return toResponse(saved);
+    }
+
+    @Transactional
+    public void deleteSellerVoucher(String currentUserEmail, Long voucherId) {
+        User seller = requireSeller(currentUserEmail);
+        Voucher voucher = sellerVoucher(voucherId, seller.getId());
+        voucher.setDeleted(true);
+        voucher.setStatus(VoucherStatus.EXPIRED);
+        voucher.setCode(archivedCode(voucher));
+        voucherRepository.save(voucher);
+        log.info("[Voucher] seller={} deleted voucherId={}", seller.getEmail(), voucherId);
+    }
+
+    @Transactional(readOnly = true)
+    public VoucherSummary getSellerSummary(String currentUserEmail) {
+        User seller = requireSeller(currentUserEmail);
+        LocalDateTime now = LocalDateTime.now();
+        return new VoucherSummary(
+                voucherRepository.countActiveBySeller(seller.getId()),
+                voucherRepository.sumUsedCountBySeller(seller.getId()),
+                voucherRepository.countExpiringSoonBySeller(seller.getId(), now, now.plusDays(3))
+        );
     }
 
     @Transactional
@@ -128,7 +185,7 @@ public class VoucherService {
     public VoucherApplyResponse previewVoucher(String currentUserEmail, ApplyVoucherRequest request) {
         User user = currentUser(currentUserEmail);
         Voucher voucher = voucherRepository.findByCodeIgnoreCase(normalizeCode(request.getCode()))
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay voucher"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy voucher"));
         return calculateVoucher(voucher, request.getItems(), request.getRentalTotal(), request.getWarrantyTotal(),
                 request.getDepositTotal(), user, user != null ? user.getEmail() : null);
     }
@@ -141,7 +198,7 @@ public class VoucherService {
         }
 
         Voucher voucher = voucherRepository.findByCodeIgnoreCase(normalizeCode(request.getVoucherCode()))
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay voucher"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy voucher"));
         VoucherApplyResponse result = calculateVoucher(
                 voucher,
                 request.getItems(),
@@ -170,17 +227,56 @@ public class VoucherService {
             return;
         }
         Voucher voucher = voucherRepository.findById(result.getVoucherId())
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay voucher"));
-        voucher.setUsedCount((voucher.getUsedCount() == null ? 0 : voucher.getUsedCount()) + 1);
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy voucher"));
         usageRepository.save(VoucherUsage.builder()
                 .voucher(voucher)
                 .order(order)
                 .customer(customer)
                 .customerEmail(customer != null ? customer.getEmail() : request.getCustomerEmail())
                 .discountAmount(result.getDiscountAmount())
+                .counted(false)
                 .build());
-        voucherRepository.save(voucher);
-        log.info("[Voucher] applied code={} order={} discount={}", voucher.getCode(), order.getOrderCode(), result.getDiscountAmount());
+        log.info("[Voucher] reserved code={} order={} discount={}", voucher.getCode(), order.getOrderCode(), result.getDiscountAmount());
+    }
+
+    @Transactional
+    public void confirmVoucherUsage(RentalOrder order) {
+        if (order == null || order.getId() == null) {
+            return;
+        }
+        usageRepository.findByOrder_Id(order.getId()).ifPresent(usage -> {
+            if (Boolean.TRUE.equals(usage.getCounted())) {
+                return;
+            }
+            Voucher voucher = usage.getVoucher();
+            voucher.setUsedCount((voucher.getUsedCount() == null ? 0 : voucher.getUsedCount()) + 1);
+            usage.setCounted(true);
+            voucherRepository.save(voucher);
+            usageRepository.save(usage);
+            log.info("[Voucher] confirmed code={} order={} usedCount={}", voucher.getCode(), order.getOrderCode(), voucher.getUsedCount());
+        });
+    }
+
+    @Transactional
+    public void releasePendingVoucherUsage(RentalOrder order) {
+        if (order == null || order.getId() == null) {
+            return;
+        }
+        usageRepository.findByOrder_Id(order.getId()).ifPresent(usage -> {
+            if (Boolean.TRUE.equals(usage.getCounted())) {
+                return;
+            }
+            String code = usage.getVoucher() != null ? usage.getVoucher().getCode() : order.getVoucherCode();
+            usageRepository.delete(usage);
+            order.setVoucherCode(null);
+            order.setVoucherTitle(null);
+            order.setDiscountTotal(BigDecimal.ZERO);
+            order.setGrandTotal(order.getRentalTotal()
+                    .add(order.getWarrantyTotal())
+                    .add(order.getDepositTotal())
+                    .max(BigDecimal.ZERO));
+            log.info("[Voucher] released pending code={} order={}", code, order.getOrderCode());
+        });
     }
 
     private VoucherApplyResponse calculateVoucher(
@@ -196,7 +292,7 @@ public class VoucherService {
         BigDecimal eligibleSubtotal = eligibleSubtotal(voucher, items);
         BigDecimal minimum = nullToZero(voucher.getMinimumOrderAmount());
         if (eligibleSubtotal.compareTo(minimum) < 0) {
-            throw new IllegalArgumentException("Don hang chua dat gia tri toi thieu cua voucher");
+            throw new IllegalArgumentException("Đơn hàng chưa đạt giá trị tối thiểu của voucher");
         }
 
         BigDecimal discount = calculateDiscount(voucher, eligibleSubtotal);
@@ -205,6 +301,10 @@ public class VoucherService {
                 .add(nullToZero(depositTotal))
                 .subtract(discount)
                 .max(BigDecimal.ZERO);
+        long usedCount = usageRepository.countByVoucher_Id(voucher.getId());
+        long userUsedCount = customerEmail == null
+                ? 0
+                : usageRepository.countByVoucher_IdAndCustomerEmailIgnoreCase(voucher.getId(), customerEmail);
 
         return VoucherApplyResponse.builder()
                 .voucherId(voucher.getId())
@@ -216,28 +316,35 @@ public class VoucherService {
                 .discountAmount(discount)
                 .payableTotal(payable)
                 .stackable(voucher.getStackable())
-                .message("Ap dung voucher thanh cong")
+                .usageLimit(voucher.getUsageLimit())
+                .perUserLimit(voucher.getPerUserLimit())
+                .usedCount(usedCount)
+                .userUsedCount(userUsedCount)
+                .message("Áp dụng voucher thành công")
                 .build();
     }
 
     private void validateUsable(Voucher voucher, String customerEmail) {
         LocalDateTime now = LocalDateTime.now();
+        if (Boolean.TRUE.equals(voucher.getDeleted())) {
+            throw new IllegalArgumentException("Voucher đã bị xóa");
+        }
         if (voucher.getStatus() != VoucherStatus.ACTIVE) {
-            throw new IllegalArgumentException("Voucher khong dang hoat dong");
+            throw new IllegalArgumentException("Voucher không đang hoạt động");
         }
-        if (now.isBefore(voucher.getStartsAt())) {
-            throw new IllegalArgumentException("Voucher chua den thoi gian su dung");
+        if (voucher.getStartsAt() != null && now.isBefore(voucher.getStartsAt())) {
+            throw new IllegalArgumentException("Voucher chua d?n th?i gian s? d?ng");
         }
-        if (now.isAfter(voucher.getEndsAt())) {
+        if (voucher.getEndsAt() != null && now.isAfter(voucher.getEndsAt())) {
             voucher.setStatus(VoucherStatus.EXPIRED);
-            throw new IllegalArgumentException("Voucher da het han");
+            throw new IllegalArgumentException("Voucher đã hết hạn");
         }
         if (voucher.getUsageLimit() != null && usageRepository.countByVoucher_Id(voucher.getId()) >= voucher.getUsageLimit()) {
-            throw new IllegalArgumentException("Voucher da het luot su dung");
+            throw new IllegalArgumentException("Voucher đã hết lượt sử dụng");
         }
         if (customerEmail != null && voucher.getPerUserLimit() != null && voucher.getPerUserLimit() > 0
                 && usageRepository.countByVoucher_IdAndCustomerEmailIgnoreCase(voucher.getId(), customerEmail) >= voucher.getPerUserLimit()) {
-            throw new IllegalArgumentException("Ban da dung voucher nay het so luot cho phep");
+            throw new IllegalArgumentException("Bạn đã dùng voucher này hết số lượt cho phép");
         }
     }
 
@@ -249,13 +356,14 @@ public class VoucherService {
             if (product == null) continue;
             boolean eligible = voucher.getProductScope() == VoucherProductScope.ALL_PRODUCTS
                     || (product.getSeller() != null && voucher.getSeller() != null
-                    && product.getSeller().getId().equals(voucher.getSeller().getId()));
+                    && product.getSeller().getId().equals(voucher.getSeller().getId()))
+                    || (product.getSeller() == null && voucher.getSeller() != null);
             if (eligible) {
                 subtotal = subtotal.add(item.getLineTotal());
             }
         }
         if (subtotal.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Voucher khong ap dung cho san pham trong gio hang");
+            throw new IllegalArgumentException("Voucher không áp dụng cho sản phẩm trong giỏ hàng");
         }
         return subtotal;
     }
@@ -279,22 +387,43 @@ public class VoucherService {
 
     private void validateVoucherRequest(UpsertVoucherRequest request) {
         if (request.getStartsAt().isAfter(request.getEndsAt())) {
-            throw new IllegalArgumentException("Ngay bat dau khong duoc sau ngay ket thuc");
+            throw new IllegalArgumentException("Ngày bắt đầu khong duoc sau ngay ket thuc");
         }
         if (request.getDiscountValue().compareTo(BigDecimal.ZERO) <= 0 && request.getDiscountType() != VoucherDiscountType.FREE_SHIPPING) {
-            throw new IllegalArgumentException("Gia tri giam phai lon hon 0");
+            throw new IllegalArgumentException("Giá trị giảm phai lon hon 0");
         }
         if (request.getDiscountType() == VoucherDiscountType.PERCENTAGE
                 && request.getDiscountValue().compareTo(new BigDecimal("100")) > 0) {
-            throw new IllegalArgumentException("Voucher phan tram khong duoc vuot qua 100%");
+            throw new IllegalArgumentException("Voucher phần trăm không được vượt quá 100%");
+        }
+    }
+
+    private void normalizeVoucherDefaults(UpsertVoucherRequest request) {
+        if (request.getStartsAt() == null) {
+            request.setStartsAt(LocalDateTime.now());
+        }
+        if (request.getEndsAt() == null) {
+            request.setEndsAt(LocalDateTime.now().plusDays(30));
+        }
+        if (request.getAudience() == null) {
+            request.setAudience(com.example.thuedocosplay.entity.enums.VoucherAudience.ALL);
+        }
+        if (request.getProductScope() == null) {
+            request.setProductScope(VoucherProductScope.SELLER_PRODUCTS);
+        }
+        if (request.getMinimumOrderAmount() == null) {
+            request.setMinimumOrderAmount(BigDecimal.ZERO);
+        }
+        if (request.getPerUserLimit() == null) {
+            request.setPerUserLimit(1);
         }
     }
 
     private Voucher sellerVoucher(Long voucherId, Long sellerId) {
         Voucher voucher = voucherRepository.findById(voucherId)
-                .orElseThrow(() -> new ResourceNotFoundException("Khong tim thay voucher"));
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy voucher"));
         if (voucher.getSeller() == null || !voucher.getSeller().getId().equals(sellerId)) {
-            throw new AccessDeniedException("Ban khong co quyen quan ly voucher nay");
+            throw new AccessDeniedException("Bạn không có quyền quản lý voucher này");
         }
         return voucher;
     }
@@ -302,7 +431,7 @@ public class VoucherService {
     private User requireSeller(String email) {
         User user = currentUser(email);
         if (user == null || (user.getRole() != UserRole.SELLER && user.getRole() != UserRole.ADMIN)) {
-            throw new AccessDeniedException("Chi seller hoac admin duoc quan ly voucher");
+            throw new AccessDeniedException("Chỉ seller hoặc admin được quản lý voucher");
         }
         return user;
     }
@@ -316,6 +445,33 @@ public class VoucherService {
 
     private String normalizeCode(String code) {
         return code == null ? "" : code.trim().toUpperCase();
+    }
+
+    private String uniqueCopyCode(String originalCode) {
+        String base = normalizeCode(originalCode);
+        String stem = base.length() > 31 ? base.substring(0, 31) : base;
+        String candidate = stem + "_COPY";
+        int attempt = 1;
+        while (voucherRepository.existsByCodeIgnoreCase(candidate)) {
+            String suffix = "_COPY" + attempt++;
+            int maxStem = Math.max(1, 40 - suffix.length());
+            candidate = (base.length() > maxStem ? base.substring(0, maxStem) : base) + suffix;
+        }
+        return candidate;
+    }
+
+    private String archivedCode(Voucher voucher) {
+        String suffix = "_DEL_" + voucher.getId();
+        String base = normalizeCode(voucher.getCode());
+        int maxBase = Math.max(1, 40 - suffix.length());
+        String candidate = (base.length() > maxBase ? base.substring(0, maxBase) : base) + suffix;
+        int attempt = 1;
+        while (voucherRepository.existsByCodeIgnoreCase(candidate)) {
+            String retrySuffix = suffix + "_" + attempt++;
+            maxBase = Math.max(1, 40 - retrySuffix.length());
+            candidate = (base.length() > maxBase ? base.substring(0, maxBase) : base) + retrySuffix;
+        }
+        return candidate;
     }
 
     private BigDecimal nullToZero(BigDecimal value) {
@@ -347,4 +503,6 @@ public class VoucherService {
                 .updatedAt(voucher.getUpdatedAt())
                 .build();
     }
+
+    public record VoucherSummary(long active, long totalUsed, long expiringSoon) {}
 }
