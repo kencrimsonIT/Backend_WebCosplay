@@ -73,10 +73,27 @@ public class SellerController {
     @GetMapping("/orders")
     public ApiResponse<List<SellerOrderResponse>> listOrders(
             Principal principal,
-            @RequestParam(required = false) OrderStatus status,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate) {
-        return ApiResponse.ok(sellerService.listOrders(currentEmail(principal), status, fromDate, toDate));
+            @RequestParam(required =false) OrderStatus status,
+            @RequestParam(required =false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate fromDate,
+
+            @RequestParam(required =false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+            LocalDate toDate,
+
+            @RequestParam(required =false)
+            String keyword
+    ) {
+        return ApiResponse.ok(
+                sellerService.listOrders(
+                        currentEmail(principal),
+                        status,
+                        fromDate,
+                        toDate,
+                        keyword
+                )
+        );
     }
 
     @GetMapping("/orders/{id}")
