@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.security.Principal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/seller")
@@ -70,28 +71,26 @@ public class SellerController {
         return ApiResponse.ok(null);
     }
 
+    // ─── ĐÃ XÓA KEYWORD Ở HÀM NÀY ──────────────────────────────────────────────
     @GetMapping("/orders")
     public ApiResponse<List<SellerOrderResponse>> listOrders(
             Principal principal,
             @RequestParam(required =false) OrderStatus status,
+
             @RequestParam(required =false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
             LocalDate fromDate,
 
             @RequestParam(required =false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
-            LocalDate toDate,
-
-            @RequestParam(required =false)
-            String keyword
+            LocalDate toDate
     ) {
         return ApiResponse.ok(
                 sellerService.listOrders(
                         currentEmail(principal),
                         status,
                         fromDate,
-                        toDate,
-                        keyword
+                        toDate
                 )
         );
     }
@@ -108,6 +107,16 @@ public class SellerController {
             @Valid @RequestBody UpdateOrderStatusRequest request) {
         return ApiResponse.ok(sellerService.updateOrderStatus(currentEmail(principal), id, request));
     }
+
+    @DeleteMapping("/orders/{id}")
+    public ApiResponse<SellerOrderResponse> cancelOrder(
+            Principal principal,
+            @PathVariable Long id,
+            @RequestBody(required = false) Map<String, String> body) {
+        String reason = body != null ? body.getOrDefault("reason", "") : "";
+        return ApiResponse.ok(sellerService.cancelOrder(currentEmail(principal), id, reason));
+    }
+
 
     @GetMapping("/revenue")
     public ApiResponse<SellerRevenueResponse> revenue(
