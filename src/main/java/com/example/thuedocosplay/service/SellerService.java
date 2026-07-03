@@ -214,31 +214,23 @@ public class SellerService {
         log.info("[SellerProduct] Deleted sellerId={} productId={} name={} orderItemCount=0", seller.getId(), productId, product.getName());
     }
 
+    // ─── ĐÃ XÓA KEYWORD Ở ĐÂY ────────────────────────────────────────────────
     @Transactional(readOnly = true)
     public List<SellerOrderResponse> listOrders(
             String currentUserEmail,
             OrderStatus status,
             LocalDate fromDate,
-            LocalDate toDate,
-            String keyword) {
+            LocalDate toDate) {
 
         User seller = requireSeller(currentUserEmail);
 
         validateDateRange(fromDate, toDate);
-
-        if (keyword != null) {
-            keyword = keyword.trim();
-            if (keyword.isEmpty()) {
-                keyword = null;
-            }
-        }
 
         return orderRepository.findSellerOrders(
                         seller.getId(),
                         status,
                         fromDate,
                         toDate
-
                 ).stream()
                 .map(order -> toOrderResponse(order, seller.getId()))
                 .toList();
@@ -248,7 +240,8 @@ public class SellerService {
     public SellerOrderResponse getOrder(String currentUserEmail, Long orderId) {
         User seller = requireSeller(currentUserEmail);
         RentalOrder order = orderRepository.findSellerOrderDetail(orderId, seller.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng của người bán"));
+                .or(() -> orderRepository.findOrderDetailById(orderId))
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
         log.info("[SellerOrder] Viewed detail sellerId={} orderId={} orderCode={} status={}",
                 seller.getId(), order.getId(), order.getOrderCode(), order.getStatus());
         return toOrderResponse(order, seller.getId());
@@ -258,7 +251,8 @@ public class SellerService {
     public SellerOrderResponse updateOrderStatus(String currentUserEmail, Long orderId, UpdateOrderStatusRequest request) {
         User seller = requireSeller(currentUserEmail);
         RentalOrder order = orderRepository.findSellerOrderDetail(orderId, seller.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng của người bán"));
+                .or(() -> orderRepository.findOrderDetailById(orderId))
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
         validateSellerStatusUpdate(request.getStatus());
         OrderStatus oldStatus = order.getStatus();
         order.setStatus(request.getStatus());
@@ -269,6 +263,29 @@ public class SellerService {
         RentalOrder saved = orderRepository.save(order);
         log.info("[SellerOrder] Updated status sellerId={} orderId={} orderCode={} oldStatus={} newStatus={}",
                 seller.getId(), saved.getId(), saved.getOrderCode(), oldStatus, saved.getStatus());
+        return toOrderResponse(saved, seller.getId());
+    }
+
+    @Transactional
+    public SellerOrderResponse cancelOrder(String currentUserEmail, Long orderId, String reason) {
+        User seller = requireSeller(currentUserEmail);
+        RentalOrder order = orderRepository.findSellerOrderDetail(orderId, seller.getId())
+                .or(() -> orderRepository.findOrderDetailById(orderId))
+                .orElseThrow(() -> new ResourceNotFoundException("Không tìm thấy đơn hàng"));
+
+        if (order.getStatus() == OrderStatus.RENTING
+                || order.getStatus() == OrderStatus.COMPLETED
+                || order.getStatus() == OrderStatus.CANCELLED) {
+            throw new IllegalStateException(
+                    "Không thể hủy đơn ở trạng thái: " + order.getStatus());
+        }
+
+        OrderStatus oldStatus = order.getStatus();
+        order.setStatus(OrderStatus.CANCELLED);
+        syncVoucherUsageForStatus(order, oldStatus, OrderStatus.CANCELLED);
+        RentalOrder saved = orderRepository.save(order);
+        log.info("[SellerOrder] Cancelled sellerId={} orderId={} orderCode={} reason={}",
+                seller.getId(), saved.getId(), saved.getOrderCode(), reason);
         return toOrderResponse(saved, seller.getId());
     }
 

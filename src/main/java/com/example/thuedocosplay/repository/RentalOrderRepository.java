@@ -23,7 +23,6 @@ public interface RentalOrderRepository
 
     List<RentalOrder> findAllByOrderByCreatedAtDesc();
 
-    // Lấy đơn theo user entity HOẶC email (hỗ trợ cả đơn guest + đơn đã login)
     @Query("""
             SELECT o FROM RentalOrder o
             WHERE o.customer = :user OR o.customerEmail = :email
@@ -34,7 +33,6 @@ public interface RentalOrderRepository
             @Param("email") String email
     );
 
-    // ─── Đếm đơn theo trạng thái + khoảng thời gian ──────────────────────────
     long countByStatusInAndCreatedAtBetween(
             List<OrderStatus> statuses,
             LocalDateTime from,
@@ -43,7 +41,6 @@ public interface RentalOrderRepository
 
     long countByCreatedAtBetween(LocalDateTime from, LocalDateTime to);
 
-    // ─── Tổng doanh thu (grand_total) của các đơn đã paidAt trong khoảng ─────
     @Query("""
             SELECT COALESCE(SUM(o.grandTotal), 0)
             FROM RentalOrder o
@@ -58,7 +55,6 @@ public interface RentalOrderRepository
             @Param("to") LocalDateTime to
     );
 
-    // ─── Doanh thu theo danh mục ───────────────────────────────────────────────
     @Query("""
             SELECT o
             FROM RentalOrder o
@@ -74,6 +70,7 @@ public interface RentalOrderRepository
             @Param("statuses") List<OrderStatus> statuses
     );
 
+    // ─── ĐÃ XÓA KEYWORD Ở ĐÂY ────────────────────────────────────────────────
     @Query("""
             SELECT DISTINCT o
             FROM RentalOrder o
@@ -92,7 +89,6 @@ public interface RentalOrderRepository
             @Param("status") OrderStatus status,
             @Param("fromDate") LocalDate fromDate,
             @Param("toDate") LocalDate toDate
-
     );
 
     @Query("""
@@ -109,6 +105,16 @@ public interface RentalOrderRepository
             @Param("orderId") Long orderId,
             @Param("sellerId") Long sellerId
     );
+
+    // Fallback: tìm theo orderId không cần seller (dùng khi sản phẩm không gán seller)
+    @Query("""
+            SELECT DISTINCT o
+            FROM RentalOrder o
+            LEFT JOIN FETCH o.items oi
+            LEFT JOIN FETCH oi.product p
+            WHERE o.id = :orderId
+            """)
+    Optional<RentalOrder> findOrderDetailById(@Param("orderId") Long orderId);
 
     @Query("""
             SELECT DISTINCT o
@@ -207,7 +213,6 @@ public interface RentalOrderRepository
             @Param("statuses") List<OrderStatus> statuses
     );
 
-    // ─── Top sản phẩm theo doanh thu ──────────────────────────────────────────
     @Query("""
             SELECT oi.productName       AS productName,
                    oi.categoryName      AS categoryName,
@@ -228,8 +233,6 @@ public interface RentalOrderRepository
             @Param("statuses") List<OrderStatus> statuses,
             Pageable pageable
     );
-
-    // ─── Projections ───────────────────────────────────────────────────────────
 
     interface CategoryRevenueProjection {
         String getCategoryName();
